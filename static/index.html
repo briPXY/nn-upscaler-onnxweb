@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Image Upscaling ONNX</title>
+  <link rel="stylesheet" href="index.css">
+  <script src="/onnxruntime-web/dist/bundle.min.js"></script>
+  <script id="onnx-backend"></script>
+  <script src="index.js" defer></script>
+</head>
+
+<body>
+  <section style="display: flex; align-items: center; justify-content: center;">
+    <h4>NN Image Upscaling - ONNX Web Runtime Demo</h4>
+  </section>
+  <section id="comparison-panel">
+    <div class="comparison-container resp-border-radius" style="display: block;">
+      <div style="position: relative; width: 100%; height: max-content;">
+        <span class="close-button">✖</span>
+      </div>
+      <div class="comparison-img-container">
+        <div class="comparison-info">
+          <div>Original</div>
+          <div>Upscaled</div>
+        </div>
+        <div class="image-wrapper image-left">
+          <img id="beforeImg" alt="Left Image" draggable="false">
+        </div>
+        <div class="image-wrapper image-right">
+          <img id="afterImg" alt="Right Image" draggable="false">
+        </div>
+        <img class="draggable-svg" src="/assets/slider-compare.svg" style="cursor: grab;">
+      </div>
+      <div id="comparison-bar" class="comparison-bar">
+        <div>init: <span id="ai-origin-value"></span></div>
+        <div><span id="ai-model-value">time</span></div>
+        <div style="text-align: end;"><span id="ai-multi-value">scale</span>X</div>
+      </div>
+    </div>
+  </section>
+  <section id="drop-zone" class="drop-zone center-content">
+    <div style="display: flex;flex-direction: column;gap: 0.5em;height: var(--h-img);justify-content: center;">
+      <div>
+        <div class="drop-zone-icon">📁</div>
+      </div>
+      <p>Click here to select an image</p>
+      <small>Only support native web formats</small>
+      <input type="file" id="fileInput" accept=".webp, .jpg, .png, .gif, .avif">
+    </div>
+  </section>
+  <section class="upscaler-buttons" style="height: var(--h-btn);">
+    <select class="valSelect">
+      <option value="null">-- Select model --</option>
+    </select>
+    <select class="valSelect">
+      <option value="auto">Runtime: auto</option>
+    </select>
+    <button id="startInterference" style="z-index: 3;">Start Upscaling</button>
+  </section>
+  <section id="loading" style="height: var(--h-btn);"> 
+    <button>Inference is running...</button>
+  </section>
+  <section id="convert-buttons" style="height: var(--h-btn);">
+    <select class="valSelect">
+      <option value="jpeg">JPG</option>
+      <option value="png">PNG</option>
+      <option value="webp">WEBP</option>
+      <option value="avif">AVIF</option>
+    </select>
+    <cfg-panel id="quality" style="display: grid;">
+      <div style="width: 60%;display: flex;font-size:small ;flex-direction: column;justify-self: center;justify-content: center;gap: 0.5em;">
+        <div style="display: flex; justify-content: space-between; gap: 1em; width: 100%;">
+          <label for="slider">Quality</label>
+          <output id="output">90</output> 
+        </div>
+        <input type="range" id="slider" name="slider" min="0" max="100" value="90"
+          oninput="output.value = slider.value">
+      </div>
+    </cfg-panel>
+    <button id="encodes" style="z-index: 3;">Save Image</button>
+  </section>
+  <section style="height: 100%;justify-content: center;align-items: center;gap: 2px;">
+    <a href="https://github.com/briPXY/nnupscaler-onnx-web" target="blank">
+      <img src="/assets/github-mark-white.svg" style="width: 1em;"/> 
+    </a>
+    <a href="https://onnxruntime.ai/" target="blank">
+      <img src="/assets/ONNX-logo.svg" style="width: 1em;"/> 
+    </a>
+  </section>
+
+</body>
+
+</html>

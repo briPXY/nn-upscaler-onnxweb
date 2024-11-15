@@ -1,0 +1,1 @@
+The models directory is formatted in /channel/dataType/tensorLayout/modelname.onnx, for convenience of getting the model info.
