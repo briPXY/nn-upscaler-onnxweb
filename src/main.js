@@ -227,12 +227,33 @@ async function _prepareInput(model, input, width, height) {
 
     if (input instanceof File) {
         await Image.prepareInputFromFile(input, model);
-    }
-    else if (input instanceof Uint8Array) {
-        await Image.prepareInputFromPixels(input, width, height, model);
+        return;
     }
 
-    return;
+    else if (input instanceof Uint8Array && width && height) {
+        await Image.prepareInputFromPixels(input, width, height, model);
+        return;
+    }
+
+    else if (input.tensor){
+        if (input.dataType && input.format && input.channels){
+            const typeMatch = input.dataType == model.dataType;
+            const layoutMatch = input.layout == model.layout;
+            const channelMatch = input.channels == model.channel;
+            
+            if (typeMatch && layoutMatch && channelMatch){
+                Image.prepareInputFromTensor(input);
+                return;
+            }
+            else {
+                throw `Tensor formats does not match with model. \n Model: type-${model.dataType}, layout-${model.layout}, channel-${model.channel} \n Input: type-${input.dataType}, layout-${input.layout}, channel-${input.channels}`;
+            }
+        }
+        else{
+            throw 'Invalid input object props for tensor input';
+        }
+    }
+    throw 'Invalid input';
 }
 
 // Utilize gpu memory instead cpu ram.
@@ -323,6 +344,7 @@ async function _sessionRunner_thread(ModelInfo) {
 // Run the model inference.
 // If model (1st param) is only url instead ModelInfo, it will assume the tensor as: NCHW, float32 and 3 channels.
 // 2nd param is input, can be uint8array of pixels or File object from file input. For uint8array input, 3rd and 4th param is necessary.
+// For tensor input, pass 2nd param as an object with properties explicitly named as: {tensor, dataType, channels, layout}. See _prepareInput().
 export async function inferenceRun(model, input, inputWidth, inputHeight) {
     try {
         let inputTensor;

@@ -62,10 +62,18 @@ export async function prepareInputFromPixels(input = new Uint8Array(0), width = 
 	workerProcess.terminate();
 	d_in.w = width;
 	d_in.h = height;
-	d_in.c = model.channel; // most model need 3 channel 
+	d_in.c = model.channel;
 	d_in.dims = model.layout == 'NCHW' ? [1, model.channel, height, width] : [1, height, width, model.channel];
 	d_in.tensor = pixelAsTensor;
 	return { w: width, h: height };
+}
+
+export function prepareInputFromTensor(input, width, height){
+	d_in.w = width;
+	d_in.h = height;
+	d_in.c = model.channel; 
+	d_in.dims = model.layout == 'NCHW' ? [1, model.channel, height, width] : [1, height, width, model.channel];
+	d_in.tensor = input.tensor;
 }
 
 // set thumbnail for left image (preview)
