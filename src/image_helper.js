@@ -56,6 +56,7 @@ export async function prepareInputFromPixels(input = new Uint8Array(0), width = 
 		h: height,
 		layout: model.layout,
 		dataType: model.dataType,
+		modelChannels: model.channel,
 	}, 'transpose-pixels', workerURL);
 
 	workerProcess.terminate();

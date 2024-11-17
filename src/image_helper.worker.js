@@ -7,28 +7,41 @@ var dataType = 'float32';
 //#region data conversion
 
 // Make pixel array into tensor layout, output is still in 8bit.
-function transposeToTensor(data) {
-	const [R, G, B] = [[], [], []]
-	for (let i = 0; i < data.length; i += 4) {
-		R.push(data[i]);
-		G.push(data[i + 1]);
-		B.push(data[i + 2]);
-		// 2. skip data[i + 3] thus filtering out the alpha channel
-	}
-
+function transposeToTensor(data, channels = 3, modelAllowAlpha) {
 	if (tensorLayout == 'NHWC') {
-		const nhwcData = [];
-		// Reshape into NHWC format: [height, width, 3]
-		for (let i = 0; i < height * width; i++) {
-			nhwcData[i * 3] = R[i];
-			nhwcData[i * 3 + 1] = G[i];
-			nhwcData[i * 3 + 2] = B[i];
+		if (channels == 4 && !modelAllowAlpha) { // Input is 4 channels and model is 3 channels.
+			const rgb = [];
+			for (let i = 0; i < data.length; i += channels) {
+				rgb[i] = data[i];
+				rgb[i + 1] = data[i + 1];
+				rgb[i + 2] = data[i + 2];
+				// Skip alpha.
+			}
+			return rgb;
 		}
-		return nhwcData;
+		if (channels == 3 && modelAllowAlpha) {
+			return addAlphaToRGB(data); // Input 3 channels, model need 4.
+		}
+		else {
+			return data;
+		}
 	}
-	else {
-		// 1b. concatenate RGB ~= transpose [224, 224, 3] -> [3, 224, 224]
-		const nchwData = R.concat(G).concat(B);
+	else { // for NCHW
+		const [R, G, B, A] = [[], [], [], []];
+		const addAlpha = modelAllowAlpha && channels == 3;
+		const includeAlpha = modelAllowAlpha && channels == 4;
+
+		for (let i = 0; i < data.length; i += channels) {
+			R.push(data[i]);
+			G.push(data[i + 1]);
+			B.push(data[i + 2]);
+			addAlpha ? A.push(255) : null;
+			includeAlpha ? A.push(data[i + 3]) : null;
+			// Alpha skipped if model is 3 and input is 4 channels.
+		}
+
+		// 1b. concatenate RGB ~= transpose [224, 224, 3] -> [3, 224, 224] 
+		const nchwData = modelAllowAlpha ? R.concat(G).concat(B).concat(A) : R.concat(G).concat(B);
 		return nchwData;
 	}
 }
@@ -95,8 +108,8 @@ function tensorNCHW_to_RGB16(tensor, dims) {
 	const batch = dims[0];
 	const channels = dims[1]; // RGB
 	const height = dims[2];
-	const width = dims[3]; 
- 
+	const width = dims[3];
+
 	const rgba16bit = new Uint16Array(batch * height * width * channels);
 
 	// Rearrange NCHW to NHWC and scale to uint16 range
@@ -110,7 +123,7 @@ function tensorNCHW_to_RGB16(tensor, dims) {
 						c * (height * width) +
 						h * width +
 						w;
- 
+
 					rgba16bit[index++] = Math.max(0, Math.min(65535, Math.round(tensor[nchwIndex] * 65535)));
 				}
 			}
@@ -163,21 +176,6 @@ const loadImage = async (source) => {
 
 //#endregion
 //#region encode to format
-
-function addAlphaToRGB(rgbArray, alphaValue = 255) {
-	if (rgbArray.length % 3 !== 0) {
-		throw new Error("Invalid RGB array length");
-	}
-	const numPixels = rgbArray.length / 3;
-	const rgbaArray = new Uint8Array(numPixels * 4);
-	for (let i = 0, j = 0; i < rgbArray.length; i += 3, j += 4) {
-		rgbaArray[j] = rgbArray[i];       // Red
-		rgbaArray[j + 1] = rgbArray[i + 1]; // Green
-		rgbaArray[j + 2] = rgbArray[i + 2]; // Blue
-		rgbaArray[j + 3] = alphaValue;     // Alpha
-	}
-	return rgbaArray;
-}
 
 function drawRectangleWithColor(offscreenCanvas, rgbArray) {
 	const offscreenContext = offscreenCanvas.getContext('2d');
@@ -244,7 +242,9 @@ self.onmessage = async function (event) {
 
 	// Create tensor array from pixels.
 	if (event.data.context == 'transpose-pixels') { // Input is rgb/a pixels (uint8).
-		const tensorArray8bit = transposeToTensor(input);
+		const channels = input.length == (width * height * 3) ? 3 : 4;
+		const modelAllowAlpha = data.modelChannels == 4;
+		const tensorArray8bit = transposeToTensor(input, channels, modelAllowAlpha);
 		const tensorArrayFloat = createFloatArray(width * height * 3);
 		convertToFloat(tensorArray8bit, tensorArrayFloat);
 		self.postMessage(tensorArrayFloat);
@@ -292,7 +292,7 @@ self.onmessage = async function (event) {
 		}
 	}
 
-	if (event.data.context == 'tensor-to-rgb16'){
+	if (event.data.context == 'tensor-to-rgb16') {
 		const rgb16 = tensorNCHW_to_RGB16(input.tensor, input.dims);
 		self.postMessage(rgb16);
 	}
