@@ -9,7 +9,8 @@
   "scripts": {
     "test": "node --test test/**/*.test.js",
     "start": "fastify start -l info app.js",
-    "dev": "fastify start -w -l info -P app.js"
+    "dev": "fastify start -w -l info -P app.js",
+    "pk": "npx webpack"
   },
   "keywords": [],
   "author": "",

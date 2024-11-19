@@ -27,11 +27,12 @@ export async function prepareInputFromFile(nativeFIle, model, blob) {
 				d_in.dims = model.layout == 'NCHW' ? [1, model.channel, img.height, img.width] : [1, img.height, img.width, model.channel];
 
 				const pixelAsTensor = await imgHelperThreadRun({
-					data: nativeFIle,
+					img: nativeFIle,
 					w: d_in.w,
 					h: d_in.h,
 					layout: model.layout,
 					dataType: model.dataType,
+					modelChannels: model.channel,
 				}, 'decode-transpose');
 
 				workerProcess.terminate();
@@ -48,10 +49,10 @@ export async function prepareInputFromFile(nativeFIle, model, blob) {
 }
 
 // Create input data + tensors from raw pixels (eg: external decoder)
-export async function prepareInputFromPixels(input = new Uint8Array(0), width = 0, height = 0, model) {
+export async function prepareInputFromPixels(img = new Uint8Array(0), width = 0, height = 0, model) {
 	// decode-transpose input into float32 pixel data
 	const pixelAsTensor = await imgHelperThreadRun({
-		data: input,
+		img: img,
 		w: width,
 		h: height,
 		layout: model.layout,
@@ -68,7 +69,7 @@ export async function prepareInputFromPixels(input = new Uint8Array(0), width = 
 	return { w: width, h: height };
 }
 
-export function prepareInputFromTensor(input, width, height){
+export function prepareInputFromTensor(input, width, height, model){
 	d_in.w = width;
 	d_in.h = height;
 	d_in.c = model.channel; 

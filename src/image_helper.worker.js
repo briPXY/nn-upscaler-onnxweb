@@ -6,7 +6,7 @@ var tensorLayout = 'NCHW';
 var dataType = 'float32';
 //#region data conversion
 
-// Make pixel array into tensor layout, output is still in 8bit.
+// Make pixel array into tensor layout, output is still in 8bit. Channels is input channel (not model).
 function transposeToTensor(data, channels = 3, modelAllowAlpha) {
 	if (tensorLayout == 'NHWC') {
 		if (channels == 4 && !modelAllowAlpha) { // Input is 4 channels and model is 3 channels.
@@ -40,6 +40,7 @@ function transposeToTensor(data, channels = 3, modelAllowAlpha) {
 			// Alpha skipped if model is 3 and input is 4 channels.
 		}
 
+		console.log('')
 		// 1b. concatenate RGB ~= transpose [224, 224, 3] -> [3, 224, 224] 
 		const nchwData = modelAllowAlpha ? R.concat(G).concat(B).concat(A) : R.concat(G).concat(B);
 		return nchwData;
@@ -232,18 +233,18 @@ function createFloatArray(size) {
 //#endregion
 //#region main-thread listener
 
-self.onmessage = async function (event) {
-	const input = event.data.input
-	const data = input.data; // Image file obj or array of pixels.
-	width = input.w;
-	height = input.h;
-	tensorLayout = input.layout;
-	dataType = input.dataType;
+self.onmessage = async function (event) { 
+	const data = event.data.input; 
+	const input = data.img; // Array buffer or a file.
+	width = data.w;
+	height = data.h;
+	tensorLayout = data.layout;
+	dataType = data.dataType;
+	const modelAllowAlpha = data.modelChannels == 4;
 
 	// Create tensor array from pixels.
 	if (event.data.context == 'transpose-pixels') { // Input is rgb/a pixels (uint8).
 		const channels = input.length == (width * height * 3) ? 3 : 4;
-		const modelAllowAlpha = data.modelChannels == 4;
 		const tensorArray8bit = transposeToTensor(input, channels, modelAllowAlpha);
 		const tensorArrayFloat = createFloatArray(width * height * 3);
 		convertToFloat(tensorArray8bit, tensorArrayFloat);
@@ -252,9 +253,10 @@ self.onmessage = async function (event) {
 
 	// Create tensor array from image File.
 	if (event.data.context == "decode-transpose") { // Input is native image File object.
-		loadImage(data)
+		loadImage(input)
 			.then((pixels) => {
-				const tensorArray8bit = transposeToTensor(pixels);
+				const channels = pixels.length == (width * height * 3) ? 3 : 4;
+				const tensorArray8bit = transposeToTensor(pixels, channels, modelAllowAlpha);
 				const tensorArrayFloat = createFloatArray(width * height * 3);
 				convertToFloat(tensorArray8bit, tensorArrayFloat);
 				// Send the processed data back to the main threa
@@ -269,9 +271,9 @@ self.onmessage = async function (event) {
 	// Create image blob from output tensor.
 	if (event.data.context == "transpose-encode") {
 		try {
-			let rgb8 = new Uint8Array(width * height * input.c);
-			convertTo8Bit(data, rgb8);
-			const outputFile = await createBlobFromRgbData(rgb8, width, height, input.q / 100, input.c, input.f);
+			let rgb8 = new Uint8Array(width * height * data.c);
+			convertTo8Bit(input, rgb8);
+			const outputFile = await createBlobFromRgbData(rgb8, width, height, data.q / 100, data.c, data.f);
 			self.postMessage(outputFile);
 		}
 		catch (error) {
@@ -283,7 +285,7 @@ self.onmessage = async function (event) {
 	// Create image blob from uint8 pixel data.
 	if (event.data.context == "encode-pixels") {
 		try {
-			const outputFile = await createBlobFromRgbData(data, width, height, input.q / 100, input.f);
+			const outputFile = await createBlobFromRgbData(input, width, height, data.q / 100, data.f);
 			self.postMessage(outputFile);
 		}
 		catch (error) {
@@ -293,7 +295,7 @@ self.onmessage = async function (event) {
 	}
 
 	if (event.data.context == 'tensor-to-rgb16') {
-		const rgb16 = tensorNCHW_to_RGB16(input.tensor, input.dims);
+		const rgb16 = tensorNCHW_to_RGB16(data.tensor, data.dims);
 		self.postMessage(rgb16);
 	}
 };

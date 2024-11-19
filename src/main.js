@@ -155,7 +155,7 @@ export function setRuntimePath(url) {
 // Get model info into ModelInfo. Using formatted URL. 
 // Path should in an format of '.../channel/dataType/tensorFormat/model-name.onnx', URL must ended with .onnx.
 export async function makeModelInfo_formatted(modelUrl) {
-    try {
+    try { 
         const response = await meta._checkUrlExists(modelUrl);
 
         if (!response) {
@@ -163,7 +163,12 @@ export async function makeModelInfo_formatted(modelUrl) {
         }
 
         const ModelInfo = {}
-        const pathText = modelUrl.match(/[a-zA-Z0-9\.\_\-]+/g);
+        const pathText = modelUrl.match(/([^\/]+)/g);
+        
+        if (!(/http|https/).test(pathText[0])){
+            throw 'Invalid model url path, use absolute path';
+        } 
+
         const l = pathText.length;
         const name = pathText[l - 1].replace('.onnx', '');
         ModelInfo.name = name;
@@ -175,6 +180,7 @@ export async function makeModelInfo_formatted(modelUrl) {
         return ModelInfo;
     } catch (error) {
         console.error('Error fetching url:', error);
+        throw error;
     }
 }
 
@@ -236,13 +242,13 @@ async function _prepareInput(model, input, width, height) {
     }
 
     else if (input.tensor){
-        if (input.dataType && input.format && input.channels){
+        if (input.dataType && input.layout && input.channels){
             const typeMatch = input.dataType == model.dataType;
             const layoutMatch = input.layout == model.layout;
             const channelMatch = input.channels == model.channel;
             
             if (typeMatch && layoutMatch && channelMatch){
-                Image.prepareInputFromTensor(input);
+                Image.prepareInputFromTensor(input, width, height, model);
                 return;
             }
             else {
