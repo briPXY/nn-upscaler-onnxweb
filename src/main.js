@@ -44,6 +44,11 @@ export const d_out = {
     multiplier: null, //  result dimension / original dimension
 };
 
+// Must be a funciton
+export const handler = {
+    gpuInferenceError: () => {},
+}
+
 // Load backend for main-thread inference.
 export async function loadBackendScript(provider = 'all', id='onnx-backend') {
     return new Promise((resolve, reject) => {
@@ -338,6 +343,10 @@ async function _sessionRunner_thread(ModelInfo) {
                 webGPUWorker.postMessage('cleanup');
                 webGPUWorker.terminate();
                 resolve('done');
+            }
+            if (event.data.gpuError){
+                handler.gpuInferenceError();
+                reject({gpuError: event.data.gpuError});
             }
         };
 

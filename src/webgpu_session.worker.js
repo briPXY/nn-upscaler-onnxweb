@@ -67,3 +67,15 @@ self.addEventListener('message', async (event) => {
         throw e;
     }
 })
+
+self.onerror = (message, source, lineno, colno, error) => {
+    console.error("Worker Error:", { message, source, lineno, colno, error });
+    // Handle or propagate the error as needed
+};
+
+self.onunhandledrejection = (event) => { 
+    if (event.reason && event.reason.message.includes("GPUBuffer")) {
+        console.error("WebGPU Error in Worker");
+        self.postMessage({gpuError: event.reason.message})
+    }
+};

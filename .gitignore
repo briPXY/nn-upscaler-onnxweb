@@ -26,6 +26,3 @@ profile-*
 # vscode
 .vscode
 *code-workspace
-
-# Bundles 
-static/onnxruntime-web/dist/*
