@@ -1,5 +1,6 @@
-import { d_in } from './main'
+import { d_in, cfg } from './main'
 import workerCodeRawString from './image_helper.worker.js';
+import { TypedArray } from './types.js';
 
 // Create the Blob and Worker
 const workerBlob = new Blob([workerCodeRawString], { type: 'application/javascript' });
@@ -18,29 +19,23 @@ export async function prepareInputFromFile(nativeFIle, model, blob) {
 			img.src = blob == null ? e.target.result : URL.createObjectURL(blob);
 
 			img.onload = async function () {
-				const result = { w: img.width, h: img.height };
-				// feed to d_in
-				d_in.w = img.width;
-				d_in.h = img.height;
-				d_in.c = model.channel; // most upscale model need 3 channel (?)
-				d_in.file = nativeFIle;
-				d_in.dims = model.layout == 'NCHW' ? [1, model.channel, img.height, img.width] : [1, img.height, img.width, model.channel];
 
-				const pixelAsTensor = await imgHelperThreadRun({
+				const inputData = await imgHelperThreadRun({
 					img: nativeFIle,
-					w: d_in.w,
-					h: d_in.h,
+					w: img.width,
+					h: img.height,
+					chunkSize: cfg.avgChunkSize,
 					layout: model.layout,
 					dataType: model.dataType,
 					modelChannels: model.channel,
 				}, 'decode-transpose');
 
-				workerProcess.terminate();
-				d_in.tensor = pixelAsTensor;
-				resolve(result);
+				inputData.forEach(e => d_in.push(e));
+				inputData.length = 0;
+				resolve(d_in.length);
 			};
 			img.onerror = (error) => {
-				console.log("error reading file");
+				console.error("error reading file");
 				reject(error);
 			};
 		};
@@ -51,28 +46,25 @@ export async function prepareInputFromFile(nativeFIle, model, blob) {
 // Create input data + tensors from raw pixels (eg: external decoder)
 export async function prepareInputFromPixels(img = new Uint8Array(0), width = 0, height = 0, model) {
 	// decode-transpose input into float32 pixel data
-	const pixelAsTensor = await imgHelperThreadRun({
+	const inputData = await imgHelperThreadRun({
 		img: img,
 		w: width,
 		h: height,
 		layout: model.layout,
 		dataType: model.dataType,
 		modelChannels: model.channel,
-	}, 'transpose-pixels', workerURL);
+		chunkSize: cfg.avgChunkSize,
+	}, 'transpose-pixels');
 
-	workerProcess.terminate();
+	inputData.forEach(e => d_in.push(e));
+	inputData.length = 0;
+	return d_in.length;
+}
+
+export function prepareInputFromTensor(input, width, height, model) {
 	d_in.w = width;
 	d_in.h = height;
 	d_in.c = model.channel;
-	d_in.dims = model.layout == 'NCHW' ? [1, model.channel, height, width] : [1, height, width, model.channel];
-	d_in.tensor = pixelAsTensor;
-	return { w: width, h: height };
-}
-
-export function prepareInputFromTensor(input, width, height, model){
-	d_in.w = width;
-	d_in.h = height;
-	d_in.c = model.channel; 
 	d_in.dims = model.layout == 'NCHW' ? [1, model.channel, height, width] : [1, height, width, model.channel];
 	d_in.tensor = input.tensor;
 }
@@ -88,6 +80,52 @@ export function imgUrlFromFile(file) {
 		};
 		reader.readAsDataURL(file);
 	});
+}
+
+export function concatUint8Arrays(...arrays) {
+	let totalLength = arrays.reduce((acc, array) => acc + array.length, 0);
+	let result = new Uint8Array(totalLength);
+	let offset = 0;
+
+	arrays.forEach(array => {
+		result.set(array, offset);
+		offset += array.length;
+	});
+
+	return result;
+}
+
+/** 
+ * Merge two Float32Array NCHW tensors of varying heights into one along the height dimension. 
+ * @returns {Float32Array} Merged tensor.
+ */
+
+function mergeNCHW(tensor1, tensor2, height1, height2, width, channel = 3, type = 'float32') {
+	// Calculate the merged height
+	const mergedHeight = height1 + height2;
+
+	const mergedTensor = TypedArray(type, channel * mergedHeight * width);
+
+	for (let c = 0; c < channel; c++) {
+		for (let h = 0; h < height1; h++) {
+			for (let w = 0; w < width; w++) {
+				mergedTensor[c * mergedHeight * width + h * width + w] = tensor1[c * height1 * width + h * width + w];
+			}
+		}
+	}
+	for (let c = 0; c < channel; c++) {
+		for (let h = 0; h < height2; h++) {
+			for (let w = 0; w < width; w++) {
+				mergedTensor[c * mergedHeight * width + (h + height1) * width + w] = tensor2[c * height2 * width + h * width + w];
+			}
+		}
+	}
+
+	return mergedTensor;
+}
+
+export const mergeTensors = {
+	NCHW: mergeNCHW,
 }
 
 
@@ -108,6 +146,7 @@ export async function imgUrlFromRGB(array, width, height) {
 	return objectURL;
 }
 
+// Encode to image format with Canvas API
 export async function encodeRGBA(pixels = new Uint8ClampedArray(0), w, h, quality = 100, format = 'jpeg') {
 	const blob = await imgHelperThreadRun({
 		data: pixels,
@@ -121,7 +160,7 @@ export async function encodeRGBA(pixels = new Uint8ClampedArray(0), w, h, qualit
 }
 
 export async function tensorToRGB16_NCHW(tensor, dims) {
-	const rgb16 = imgHelperThreadRun({tensor: tensor, dims: dims}, 'tensor-to-rgb16');
+	const rgb16 = imgHelperThreadRun({ tensor: tensor, dims: dims }, 'tensor-to-rgb16');
 	return rgb16;
 }
 
@@ -135,10 +174,12 @@ async function imgHelperThreadRun(input = {}, context) { // resize version
 					return;
 				}
 				resolve(event.data);
+				workerProcess.terminate();
 				return;
 			};
 			workerProcess.onerror = (error) => {
 				console.error(error);
+				workerProcess.terminate();
 				reject(error);
 			};
 			workerProcess.postMessage({ input: input, context: context });

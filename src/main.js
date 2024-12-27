@@ -1,6 +1,7 @@
 // import * as ort from 'onnxruntime-web';  // Bundling not includes webgpu backend despite stated true.
 import * as Image from './image_helper';
 import * as meta from './meta';
+import { OutputData, Dims, ChunkLevel} from './types';
 
 // worker raw
 import sessionRawWorker from './webgpu_session.worker';
@@ -12,8 +13,23 @@ export const cfg = {
         webgpu: `${meta._defaultModulePath}ort.webgpu.min.js`,
         wasm: `${meta._defaultModulePath}ort.wasm.min.js`,
         all: `${meta._defaultModulePath}ort.all.min.js`
-    }
+    },
+    _avgChunkSize: ChunkLevel[2], // Average chunk size in pixels, for example 1600p will be sliced for each 400x400px, 0 = one time inference
 };
+
+Object.defineProperty(cfg, 'avgChunkSize', {
+    get: function () {
+        return this._avgChunkSize;
+    },
+    set: function (size) {
+        if (ChunkLevel[size]) {
+            this._avgChunkSize = ChunkLevel[size];
+        } else {
+            this._avgChunkSize = ChunkLevel[1];
+            console.warn('Value must be a number between 1 - 4'); 
+        }
+    }
+});
 
 // To be set on ort.env.
 export const _env = {
@@ -30,36 +46,40 @@ export const InferenceOpt = {
 };
 
 // Input data
-export const d_in = {
-    tensor: [],
-    dims: [1, 3, 244, 244],
-    c: 0,
-    w: 0,
-    h: 0,
-};
 
-export const d_out = {
-    imageData: [],
-    tensor: [],
-    multiplier: null, //  result dimension / original dimension
-};
+export const d_in = [];
+// export const d_in = {
+//     tensor: [],
+//     dims: [1, 3, 244, 244],
+//     c: 0,
+//     w: 0,
+//     h: 0,
+// };
+
+export const _inputData = [];
+
+export var d_out;
 
 // Must be a funciton
 export const handler = {
-    gpuInferenceError: () => {},
+    gpuInferenceError: () => { },
+    chunkProcess: {
+        total: 0,
+        doneEvent: () => { },
+    }
 }
 
 // Load backend for main-thread inference.
-export async function loadBackendScript(provider = 'all', id='onnx-backend') {
+export async function loadBackendScript(provider = 'all', id = 'onnx-backend') {
     return new Promise((resolve, reject) => {
         const script = document.getElementById(id);
 
-        if (script.src != ''){
+        if (script.src != '') {
             resolve('loaded');
             return;
         }
 
-        if (!script){
+        if (!script) {
             console.error(`'No script tag with id="${id}" is provided'`);
             reject(`No script tag with id="${id}" provided`);
         }
@@ -80,14 +100,14 @@ export async function loadBackendScript(provider = 'all', id='onnx-backend') {
                 for (const key in _env.webgpu) {
                     ort.env.webgpu[key] = _env.webgpu[key];
                 }
-            } 
+            }
             resolve('loaded');
         };
         script.onerror = (error) => {
             console.error(`loadRuntimeBackend() error @ loading ${provider} backend`);
             reject(error);
         };
-    }); 
+    });
 }
 
 // future implementation for IndexedDB model storing
@@ -160,7 +180,7 @@ export function setRuntimePath(url) {
 // Get model info into ModelInfo. Using formatted URL. 
 // Path should in an format of '.../channel/dataType/tensorFormat/model-name.onnx', URL must ended with .onnx.
 export async function makeModelInfo_formatted(modelUrl) {
-    try { 
+    try {
         const response = await meta._checkUrlExists(modelUrl);
 
         if (!response) {
@@ -169,10 +189,10 @@ export async function makeModelInfo_formatted(modelUrl) {
 
         const ModelInfo = {}
         const pathText = modelUrl.match(/([^\/]+)/g);
-        
-        if (!(/http|https/).test(pathText[0])){
+
+        if (!(/http|https/).test(pathText[0])) {
             throw 'Invalid model url path, use absolute path';
-        } 
+        }
 
         const l = pathText.length;
         const name = pathText[l - 1].replace('.onnx', '');
@@ -226,6 +246,7 @@ function _setModelInfo(model) {
             url: model,
             dataType: 'float32',
             layout: 'NCHW',
+            channel: 3,
         }
     }
     else {
@@ -237,7 +258,7 @@ function _setModelInfo(model) {
 async function _prepareInput(model, input, width, height) {
 
     if (input instanceof File) {
-        await Image.prepareInputFromFile(input, model);
+        handler.chunkProcess.total = await Image.prepareInputFromFile(input, model);
         return;
     }
 
@@ -246,13 +267,13 @@ async function _prepareInput(model, input, width, height) {
         return;
     }
 
-    else if (input.tensor){
-        if (input.dataType && input.layout && input.channels){
+    else if (input.tensor) {
+        if (input.dataType && input.layout && input.channels) {
             const typeMatch = input.dataType == model.dataType;
             const layoutMatch = input.layout == model.layout;
             const channelMatch = input.channels == model.channel;
-            
-            if (typeMatch && layoutMatch && channelMatch){
+
+            if (typeMatch && layoutMatch && channelMatch) {
                 Image.prepareInputFromTensor(input, width, height, model);
                 return;
             }
@@ -260,7 +281,7 @@ async function _prepareInput(model, input, width, height) {
                 throw `Tensor formats does not match with model. \n Model: type-${model.dataType}, layout-${model.layout}, channel-${model.channel} \n Input: type-${input.dataType}, layout-${input.layout}, channel-${input.channels}`;
             }
         }
-        else{
+        else {
             throw 'Invalid input object props for tensor input';
         }
     }
@@ -295,29 +316,42 @@ function _preAllocWebGPU(scale, dataType) { // both alloc buffer and output tens
 }
 
 // Running the session on main thread, return output tensor.
-async function _sessionRunner(inputTensor, ModelInfo) {
+async function _sessionRunner(ModelInfo) {
+    const input = d_in.shift();
+    const inputTensor = new ort.Tensor(ModelInfo.dataType, input.tensor, input.dims);
     const session = await ort.InferenceSession.create(ModelInfo.url, InferenceOpt);
+
     const inputName = session.inputNames[0];
     const outputName = session.outputNames[0];
 
     // prepare feeds. use model input tensor names as keys ()
     const feeds = { [inputName]: inputTensor };
-    let result;
 
     // Feed input and run 
-    result = await session.run(feeds);
+
+    //console.log('process chunk no:', d_in.length, input.dims, 'height:', input.h);
+    const result = await session.run(feeds);
+    handler.chunkProcess.doneEvent();
 
     let outputTensor = result[outputName];
     const imageData = outputTensor.toImageData();
     const tensorBuffer = await outputTensor.getData()
+    d_out.tensor = Image.mergeTensors[ModelInfo.layout](d_out.tensor, tensorBuffer, d_out.imageData.height, imageData.height, imageData.width, ModelInfo.channel, ModelInfo.dataType);
 
-    d_out.imageData = imageData;
-    d_out.multiplier = imageData.width / d_in.w;
-    d_out.tensor = tensorBuffer;
-    d_out.dims = outputTensor.dims;
+    d_out.imageData.data = Image.concatUint8Arrays(d_out.imageData.data, imageData.data);
+    d_out.imageData.width = imageData.width;
+    d_out.imageData.height += imageData.height;
 
-    outputTensor.dispose(); 
+    inputTensor.dispose();
+    outputTensor.dispose();
     session.release();
+
+    if (d_in.length > 0) {
+        await _sessionRunner(ModelInfo);
+    }
+
+    d_out.dims = Dims(ModelInfo.layout, { W: d_out.imageData.width, H: d_out.imageData.height, C: ModelInfo.channel, N: 1 });
+
     return;
 }
 
@@ -328,25 +362,49 @@ async function _sessionRunner_thread(ModelInfo) {
         const workerURL = URL.createObjectURL(workerBlob);
         const webGPUWorker = new Worker(workerURL);
 
-        webGPUWorker.postMessage({ inputArray: d_in.tensor.buffer, dims: d_in.dims, cfg: cfg, env: _env, ModelInfo: ModelInfo, InferenceOpt: InferenceOpt }, [d_in.tensor.buffer]);
+        webGPUWorker.postMessage({
+            inputArray: d_in[0].tensor.buffer,
+            dims: d_in[0].dims,
+            cfg: cfg,
+            env: _env,
+            ModelInfo: ModelInfo,
+            InferenceOpt: InferenceOpt
+        }, [d_in[0].tensor.buffer]);
 
         // Web worker only post result
         webGPUWorker.onmessage = async (event) => {
-            if (event.data == 'done') {
-                webGPUWorker.postMessage('get-data');  
+            if (event.data == 'chunk done') {
+                webGPUWorker.postMessage('get-data');
             }
+
             if (event.data.tensor) {
-                d_out.imageData = event.data.image;
-                d_out.tensor = event.data.tensor;
-                d_out.multiplier = event.data.image.width / d_in.w
-                d_out.dims = event.data.dims;
+                d_in.shift();
+                const imageData = event.data.image;
+                d_out.tensor = Image.mergeTensors[ModelInfo.layout](d_out.tensor, event.data.tensor, d_out.imageData.height, imageData.height, imageData.width, ModelInfo.channel, ModelInfo.dataType);
+                d_out.imageData.data = Image.concatUint8Arrays(d_out.imageData.data, imageData.data);
+                d_out.imageData.width = imageData.width;
+                d_out.imageData.height += imageData.height;
+
+                if (d_in.length === 0) {
+                    d_out.multiplier = imageData.width / d_in.w
+                    d_out.dims = Dims(ModelInfo.layout, { W: d_out.imageData.width, H: d_out.imageData.height, C: ModelInfo.channel, N: 1 });
+                    webGPUWorker.postMessage('cleanup');
+                    webGPUWorker.terminate();
+                    resolve('done');
+                    return;
+                }
+
+                // Cycle for next chunk.
                 webGPUWorker.postMessage('cleanup');
-                webGPUWorker.terminate();
-                resolve('done');
+                webGPUWorker.postMessage({
+                    inputArray: d_in[0].tensor.buffer,
+                    dims: d_in[0].dims,
+                }, [d_in[0].tensor.buffer]);
+
             }
-            if (event.data.gpuError){
+            if (event.data.gpuError) {
                 handler.gpuInferenceError();
-                reject({gpuError: event.data.gpuError});
+                reject({ gpuError: event.data.gpuError });
             }
         };
 
@@ -356,17 +414,22 @@ async function _sessionRunner_thread(ModelInfo) {
     });
 }
 
-// Run the model inference.
-// If model (1st param) is only url instead ModelInfo, it will assume the tensor as: NCHW, float32 and 3 channels.
-// 2nd param is input, can be uint8array of pixels or File object from file input. For uint8array input, 3rd and 4th param is necessary.
-// For tensor input, pass 2nd param as an object with properties explicitly named as: {tensor, dataType, channels, layout}. See _prepareInput().
+
+/**
+ * Run the model inference.
+ * @param {Object} model - If model is only url instead ModelInfo, it will assume the tensor as: NCHW, float32 and 3 channels.
+ * @param {Object} input; - Can be uint8array of pixels or File object from file input. For uint8array input, 3rd and 4th param is necessary. 
+ * For tensor as input,  an object with properties explicitly named seen in _prepareInput().
+ * @param {number} inputWidth - Number of channels (must be consistent across all tensors).
+ * @param {number} inputHeight - Width of each tensor (must be consistent across all tensors).
+ */
 export async function inferenceRun(model, input, inputWidth, inputHeight) {
     try {
-        let inputTensor;
         const runtimeIsGPU = InferenceOpt.executionProviders[0] == 'webgpu' && !!navigator.gpu;
 
         const ModelInfo = _setModelInfo(model);
-        await _prepareInput(ModelInfo, input, inputWidth, inputHeight); 
+        d_out = new OutputData(ModelInfo.dataType);
+        await _prepareInput(ModelInfo, input, inputWidth, inputHeight);
 
         if (runtimeIsGPU) {
             // Force NCHW for webgpu if input is NCHW, because default is NHWC, this should be on basic onnxweb's docs!
@@ -381,14 +444,13 @@ export async function inferenceRun(model, input, inputWidth, inputHeight) {
             await _sessionRunner_thread(ModelInfo)
         }
         else {
-            inputTensor = new ort.Tensor(ModelInfo.dataType, d_in.tensor, d_in.dims);
-            await _sessionRunner(inputTensor, ModelInfo); 
+            await _sessionRunner(ModelInfo);
         }
 
         const end = new Date();
         const inferenceTime = (end.getTime() - start.getTime()) / 1000;
         d_out.time = inferenceTime;
-       
+
         return;
         // improve or rate this workflow :)
     } catch (e) {

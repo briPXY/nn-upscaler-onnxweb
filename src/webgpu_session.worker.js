@@ -3,6 +3,7 @@
 // 
 
 let outputName, result, session, inputTensor, outputTensor;
+let ModelInfo, InferenceOpt, env, cfg;
 
 function setEnv(env) {
     for (const key in env) {
@@ -39,18 +40,22 @@ self.addEventListener('message', async (event) => {
             self.postMessage({ image: imageData, tensor: tensorBuffer, dims: outputTensor.dims });
             return
         }
+ 
+        event.data.InferenceOpt ? InferenceOpt = event.data.InferenceOpt : InferenceOpt;
+        event.data.ModelInfo ? ModelInfo = event.data.ModelInfo : ModelInfo;
+        event.data.env ? env = event.data.env : env;
+        event.data.cfg ? cfg = event.data.cfg : cfg;
 
-        const data = event.data;
-        const provider = data.InferenceOpt.executionProviders[0] == 'wasm' ? 'wasm' : 'webgpu';
-        const array32 = new Float32Array(data.inputArray);
+        const provider = InferenceOpt.executionProviders[0] == 'wasm' ? 'wasm' : 'webgpu';
+        const array32 = new Float32Array(event.data.inputArray);
 
         // import budle from /dist/  
-        importScripts(data.cfg.backendPath[provider]);
+        importScripts(cfg.backendPath[provider]);
 
-        setEnv(data.env);
+        setEnv(env);
 
-        session = await ort.InferenceSession.create(data.ModelInfo.url, data.InferenceOpt);
-        inputTensor = new ort.Tensor(data.ModelInfo.dataType, array32, data.dims);
+        session = await ort.InferenceSession.create(ModelInfo.url, InferenceOpt);
+        inputTensor = new ort.Tensor(ModelInfo.dataType, array32, event.data.dims);
         const inputName = session.inputNames[0];
         outputName = session.outputNames[0];
 
@@ -59,7 +64,7 @@ self.addEventListener('message', async (event) => {
 
         // Feed input and run 
         result = await session.run(feeds);
-        self.postMessage('done');
+        self.postMessage('chunk done');
         return;
     }
     catch (e) {

@@ -1,6 +1,7 @@
-# Neural Networks on Browser - ONNX Web Runtime Demo
+# Web Neural Inference for Image Processing Models (ONNX)
 
-Image upscaling with neural network models, in the browser, using onnxruntime-web.
+Easy interface for web neural network inference for image processing. Using ONNX runtime.
+Feature: Memory efficiency with chunked inference, adapt to various tensor layouts.
 
 ## Usage
 

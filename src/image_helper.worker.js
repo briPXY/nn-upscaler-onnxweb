@@ -7,7 +7,9 @@ var dataType = 'float32';
 //#region data conversion
 
 // Make pixel array into tensor layout, output is still in 8bit. Channels is input channel (not model).
-function transposeToTensor(data, channels = 3, modelAllowAlpha) {
+function transposeToTensor(data, channels = 3, modelChannels) {
+	const modelAllowAlpha = modelChannels == 4;
+
 	if (tensorLayout == 'NHWC') {
 		if (channels == 4 && !modelAllowAlpha) { // Input is 4 channels and model is 3 channels.
 			const rgb = [];
@@ -40,7 +42,6 @@ function transposeToTensor(data, channels = 3, modelAllowAlpha) {
 			// Alpha skipped if model is 3 and input is 4 channels.
 		}
 
-		console.log('')
 		// 1b. concatenate RGB ~= transpose [224, 224, 3] -> [3, 224, 224] 
 		const nchwData = modelAllowAlpha ? R.concat(G).concat(B).concat(A) : R.concat(G).concat(B);
 		return nchwData;
@@ -133,6 +134,24 @@ function tensorNCHW_to_RGB16(tensor, dims) {
 	return rgba16bit;
 }
 
+function makeInputTensor(pixels, imgChannels, width, height, modelChannels) {
+	const tensorArray8bit = transposeToTensor(pixels, imgChannels, modelChannels);
+	const tensorArrayFloat = createFloatArray(width, height, modelChannels);
+	convertToFloat(tensorArray8bit, tensorArrayFloat);
+	return tensorArrayFloat;
+}
+
+function makeDims(layout, { W = 0, H = 0, C = 3, N = 1 }) {
+	layout = layout.toUpperCase();
+	const dims = [0, 0, 0, 0];
+	dims[layout.indexOf("N")] = N;
+	dims[layout.indexOf("C")] = C;
+	dims[layout.indexOf("H")] = H;
+	dims[layout.indexOf("W")] = W;
+
+	return dims;
+}
+
 //#endregion
 //#region decode to rgb
 
@@ -218,49 +237,89 @@ async function createBlobFromRgbData(pixelData, width, height, compressionQualit
 	})
 }
 
-function createFloatArray(size) {
+function createFloatArray(width, height, modelChannels) {
 	if (dataType == 'float32') {
-		return new Float32Array(size);
+		return new Float32Array(width * height * modelChannels);
 	}
 	if (dataType == 'float16') {
-		return new Float16Array(size);
+		return new Float32Array(width * height * modelChannels);
 	}
 	if (dataType == 'float64') {
-		return new Float64Array(size);
+		return new Float64Array(width * height * modelChannels);
 	}
+}
+
+//#region create input chunks
+
+function pixelsSlicer(pixels, chunkSize, width, height, channels) {
+	const pixelChunks = [];
+
+	if (width * height <= chunkSize) {
+		return [{ data: [pixels], h: height }];
+	}
+
+	const chunkHeight = Math.round(chunkSize / width);
+	const sliceSize = width * chunkHeight * channels;
+
+	for (let i = 0; i < pixels.length;) {
+		if (i + sliceSize >= pixels.length) {
+			pixelChunks.push({ data: pixels.slice(i), h: height });
+			break;
+		}
+
+		pixelChunks.push({ data: pixels.slice(i, i + sliceSize), h: chunkHeight });
+		height -= chunkHeight;
+		i += sliceSize;
+	}
+
+	return pixelChunks;
 }
 
 //#endregion
 //#region main-thread listener
 
-self.onmessage = async function (event) { 
-	const data = event.data.input; 
+self.onmessage = async function (event) {
+	const data = event.data.input;
 	const input = data.img; // Array buffer or a file.
 	width = data.w;
 	height = data.h;
 	tensorLayout = data.layout;
 	dataType = data.dataType;
-	const modelAllowAlpha = data.modelChannels == 4;
 
 	// Create tensor array from pixels.
 	if (event.data.context == 'transpose-pixels') { // Input is rgb/a pixels (uint8).
 		const channels = input.length == (width * height * 3) ? 3 : 4;
-		const tensorArray8bit = transposeToTensor(input, channels, modelAllowAlpha);
-		const tensorArrayFloat = createFloatArray(width * height * 3);
-		convertToFloat(tensorArray8bit, tensorArrayFloat);
-		self.postMessage(tensorArrayFloat);
+		let tensorChunks = [];
+		const pixelChunks = pixelsSlicer(input, data.chunkSize, width, height, channels);
+
+		for (let i = 0; i < pixelChunks.length; i++) {
+			const tensorArrayFloat = makeInputTensor(pixelChunks[i].data, channels, width, pixelChunks[i].h, data.modelChannels);
+			const dims = makeDims(tensorLayout, { C: data.modelChannels, N: 1, W: width, H: pixelChunks[i].h });
+			tensorChunks.push({ tensor: tensorArrayFloat, dims: dims, w: width, h: pixelChunks[i].h, c: data.modelChannels });
+		}
+
+		self.postMessage(tensorChunks);
+		tensorChunks = null;
+		return;
 	}
 
 	// Create tensor array from image File.
 	if (event.data.context == "decode-transpose") { // Input is native image File object.
 		loadImage(input)
 			.then((pixels) => {
-				const channels = pixels.length == (width * height * 3) ? 3 : 4;
-				const tensorArray8bit = transposeToTensor(pixels, channels, modelAllowAlpha);
-				const tensorArrayFloat = createFloatArray(width * height * 3);
-				convertToFloat(tensorArray8bit, tensorArrayFloat);
+				let tensorChunks = [];
+				const channels = input.length == (width * height * 3) ? 3 : 4;
+				const pixelChunks = pixelsSlicer(pixels, data.chunkSize, width, height, channels);
+
+				for (let i = 0; i < pixelChunks.length; i++) {
+					const tensorArrayFloat = makeInputTensor(pixelChunks[i].data, channels, width, pixelChunks[i].h, data.modelChannels);
+					const dims = makeDims(tensorLayout, { C: data.modelChannels, N: 1, W: width, H: pixelChunks[i].h });
+					tensorChunks.push({ tensor: tensorArrayFloat, dims: dims, w: width, h: pixelChunks[i].h, c: data.modelChannels });
+				}
 				// Send the processed data back to the main threa
-				self.postMessage(tensorArrayFloat);
+				self.postMessage(tensorChunks);
+				tensorChunks = null;
+				return;
 			})
 			.catch((error) => {
 				console.error(error);
@@ -272,7 +331,7 @@ self.onmessage = async function (event) {
 	if (event.data.context == "transpose-encode") {
 		try {
 			let rgb8 = new Uint8Array(width * height * data.c);
-			convertTo8Bit(input, rgb8);
+			convertTo8Bit(data.data, rgb8);
 			const outputFile = await createBlobFromRgbData(rgb8, width, height, data.q / 100, data.c, data.f);
 			self.postMessage(outputFile);
 		}
@@ -285,7 +344,7 @@ self.onmessage = async function (event) {
 	// Create image blob from uint8 pixel data.
 	if (event.data.context == "encode-pixels") {
 		try {
-			const outputFile = await createBlobFromRgbData(input, width, height, data.q / 100, data.f);
+			const outputFile = await createBlobFromRgbData(data.data, width, height, data.q / 100, data.f);
 			self.postMessage(outputFile);
 		}
 		catch (error) {
