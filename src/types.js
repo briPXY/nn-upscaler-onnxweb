@@ -1,13 +1,29 @@
 export class OutputData {
-    constructor(tensorType) {
-        this.imageData = {
-            data: new Uint8Array(),
-            width: 0,
-            height: 0
-        };
-        this.tensorChunks = [];
-        this.tensor = TypedArray(tensorType, 0);
-        this.multiplier = null;
+    constructor({ includeTensor = true } = {}) {
+        this.includeTensor = includeTensor;
+    }
+
+    includeTensor = true;
+
+    tensorChunks;
+    tensor;
+    multiplier;
+    imageData = {
+        data: new Uint8Array(),
+        width: 0,
+        height: 0
+    };
+
+    get tensor() {
+        return this._tensor;
+    }
+    /**
+     * @param {TypedArray} value
+     */
+    set tensor(value) {
+        if (this.includeTensor) {
+            this._tensor = value;
+        }
     }
 }
 
@@ -51,4 +67,39 @@ export const ChunkLevel = {
     2: 160000,
     3: 640000,
     4: 1440000
+}
+
+export class Model {
+    constructor(input) {
+        if (typeof input == 'string') {
+            this.url = input;
+        }
+
+        if (typeof input == 'object' && input.url && input.dataType) {
+            for (const prop in input) {
+                this.hasOwnProperty(prop) ? this[prop] = input[prop] : null;
+            }
+        }
+
+        if (input instanceof File) {
+            this.url = URL.createObjectURL(input);
+        }
+    }
+
+    url;
+    channel;
+    dataType;
+    layout;
+
+    validate() {
+        const emptyprop = [];
+        for (const key in this) {
+            if (!this[key]) {
+                emptyprop.push(key);
+            }
+        }
+        if (emptyprop.length > 0) {
+            throw `Model instance is missing information: ${emptyprop}`;
+        }
+    }
 }

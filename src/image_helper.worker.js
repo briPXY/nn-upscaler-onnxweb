@@ -255,7 +255,7 @@ function pixelsSlicer(pixels, chunkSize, width, height, channels) {
 	const pixelChunks = [];
 
 	if (width * height <= chunkSize) {
-		return [{ data: [pixels], h: height }];
+		return [{ data: pixels, h: height }];
 	}
 
 	const chunkHeight = Math.round(chunkSize / width);

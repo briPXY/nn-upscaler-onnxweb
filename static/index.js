@@ -49,7 +49,7 @@ function sectionStates(states = {}) {
 sectionStates({ dropZone: 'flex', compPanel: 'none', convert: 'none', loading: 'none' });
 
 async function setModelList() {
-    Models = await NNU.requestModelsCollections('/get-models-info'); 
+    Models = await NNU.meta.requestModelsCollections('/get-models-info'); 
     delete Models['readme.md'];
     for (const name in Models) {
         const opt = document.createElement('option');
@@ -188,6 +188,10 @@ document.querySelector('.close-button').addEventListener('click', (e) => {
 section.dropZone.addEventListener('click', () => { fInput.click() }); 
 
 pv.startBtn.style.display = 'none';
+NNU.handlers.chunkProcess.doneEvent = () => {
+    console.log(`a chunk no ${NNU.handlers.chunkProcess.total} processed`)
+    NNU.handlers.chunkProcess.total -= 1;
+}
 
 document.getElementById('encodes').addEventListener('click', (e) => {
     const format = optionSelect[2].value;
@@ -227,12 +231,12 @@ pv.startBtn.addEventListener('click', async function () {
         sectionStates({ upscale: 'none', loading: 'flex' });
 
         NNU.cfg.wasmGpuRunOnWorker = true;
-        NNU.setWasmFlags({ wasmPaths: 'http://localhost:3000/onnxruntime-web/dist/', proxy: false });
+        NNU.setWasmFlags({ wasmPaths: 'http://localhost:3000/onnxruntime-web/dist/', proxy: false, numThreads: 8 });
         NNU.setInferenceOption(inferenceOptions); 
-
-        await NNU.loadBackendScript('all');
-        await NNU.inferenceRun(Models[selectVal.form0], fInput.files[0]); 
-        Output = NNU.d_out; 
+        const upscaleModel = new NNU.Model(Models[selectVal.form0]);
+        Output = new NNU.OutputData({includeTensor: false});
+ 
+        await NNU.inferenceRun(upscaleModel, fInput.files[0], Output); 
 
         console.log('Inference finished', Output.imageData.data.length, '- Time to finish:', Output.time);
 
