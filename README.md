@@ -9,51 +9,49 @@ Feature: Avoid browser/tab crash from bloated memory with chunked inference. Ada
 ```bash
 # install dependecies
 npm install
-# build the bundle and copy runtime files
+# build bundle.min.js and copied backends
 npx webpack 
-```
-#### Run the demo server:
-```bash
+# run the demo server, open http://127.0.0.1 (use mainstream browsers for webgpu support)
 npm start
-# open http://127.0.0.1 (use latest mainstream browser for webgpu support)
-```
+``` 
 _Select an image -> select models / runtime -> upscale_
+Bundle and it's backends will generated in static/, bundle.min.js is lightweight due to it's independent from ort module, the javascript backends and it's wasm URL can be provided externally like from a CDN, by assigning the urls on `wnx.backendPath.wasm` or `wnx.backendPath.ort` or `wnx.backendPath.all`.
 
 ## Runtime Backends
 - Web Assembly: Multi-threading/SIMD is supported by onnx runtime.
 - WebGPU: Enabled on Chrome on most devices. Mostly faster than wasm. If you encounter issues, try `chrome://flags/#enable-unsafe-webgpu` flag or try a browser with official WebGPU support.
 
-Inference session run in the worker by default unless ```NNU.cfg.wasmGpuRunOnWorker = false ```.
+Inference session run in the worker by default unless ```wnx.cfg.wasmGpuRunOnWorker = false ```.
 There is also webgl runtime but acts unexpected (dims/tensor layout always rejected wether using NCHW or NHWC as input).
 
 ## Using the Bundle
 #### Basic inference
 ```javascript
 // Model instance and required infos.
-const upscaleModel = new NNU.Model('https://cdn-domain.com/path/to/model.onnx');
-UpscaleModel.dataType: 'float32',
-UpscaleModel.layout: 'NCHW', 
-UpscaleModel.channel: 3,  
+const upscaleModel = new wnx.Model('https://cdn-domain.com/path/to/model.onnx');
+UpscaleModel.dataType: 'float32';
+UpscaleModel.layout: 'NCHW';
+UpscaleModel.channel: 3;
 
 // OutputData instance.
-const output = new NNU.OutputData();
+const output = new wnx.OutputData();
 
 // Start inference with an image file from input.
-await NNU.inferenceRun(upscaleModel, fileInput.files[0], output);
+await wnx.inferenceRun(upscaleModel, fileInput.files[0], output);
 
 // Get result.
 output.imageData; // contain pixel buffer (Uint8array) and output dimensions
-output.tensor;   // raw tensor (float type TypedArray)
+output.tensor;   // raw tensor (TypedArray)
 ```
 
 #### Pre-inference settings
 Set wasm [flags](https://onnxruntime.ai/docs/tutorials/web/env-flags-and-session-options.html), example:
 ```javascript
-NNU.setWasmFlags({wasmPaths: 'cdn/of/onnxruntime-web/dist/', numThreads: 6})
+wnx.setWasmFlags({wasmPaths: 'cdn/of/onnxruntime-web/dist/', numThreads: 6})
 ```
 Set session [options](https://onnxruntime.ai/docs/tutorials/web/env-flags-and-session-options.html), example:
 ```javascript
-NNU.setInferenceOption({executionProviders: ['wasm']})
+wnx.setInferenceOption({executionProviders: ['wasm']})
 ```
 
 #### Post-inference utility
@@ -62,11 +60,11 @@ Encodes image data from output, return a blob, example
 const pixels = output.imageData.data;
 const width = output.imageData.width;
 // etc
-const blob = await NNU.Image.encodeRGBA(pixels, width, height, 90, 'webp')
+const blob = await wnx.Image.encodeRGBA(pixels, width, height, 90, 'webp')
 ```
 Convert output tensor (nchw) to image data (rgb), return an Uint16Array.
 ```javascript
-const imageData16 = await NNU.Image.tensorToRGB16_NCHW(output.tensor)
+const imageData16 = await wnx.Image.tensorToRGB16_NCHW(output.tensor)
 ```
 
 ## Included Models

@@ -1,4 +1,5 @@
-import { d_in, cfg } from './main'
+import { d_in } from './main';
+import { cfg } from './cfg.js';
 import workerCodeRawString from './image_helper.worker.js';
 import { TypedArray } from './types.js';
 
@@ -104,7 +105,7 @@ function mergeNCHW(tensor1, tensor2, height1, height2, width, channel = 3, type 
 	// Calculate the merged height
 	const mergedHeight = height1 + height2;
 
-	const mergedTensor = TypedArray(type, channel * mergedHeight * width);
+	const mergedTensor = TypedArray[type](channel * mergedHeight * width);
 
 	for (let c = 0; c < channel; c++) {
 		for (let h = 0; h < height1; h++) {

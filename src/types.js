@@ -6,7 +6,6 @@ export class OutputData {
     includeTensor = true;
 
     tensorChunks;
-    tensor;
     multiplier;
     imageData = {
         data: new Uint8Array(),
@@ -27,27 +26,16 @@ export class OutputData {
     }
 }
 
-export function TypedArray(type, size = 0) {
-    switch (type) {
-        case 'float32':
-            return new Float32Array(size);
-        case 'float64':
-            return new Float64Array(size);
-        case 'int8':
-            return new Int8Array(size);
-        case 'uint8':
-            return new Uint8Array(size);
-        case 'float16':
-            return new Float32Array(size);
-        case 'uint16':
-            return new Uint16Array(size);
-        case 'int32':
-            return new Int32Array(size);
-        case 'uint32':
-            return new Uint32Array(size);
-        default:
-            return new Float32Array(size);
-    }
+export const TypedArray = {
+    'float32': (size) => { return new Float32Array(size); },
+    'float64': (size) => { return new Float64Array(size); },
+    'int8': (size) => { return new Int8Array(size); },
+    'uint8': (size) => { return new Uint8Array(size); },
+    'float16': (size) => { return new Float32Array(size); },
+    'uint16': (size) => { return new Uint16Array(size); },
+    'int32': (size) => { return new Int32Array(size); },
+    'uint32': (size) => { return new Uint32Array(size); },
+    default: (size) => { return new Float32Array(size); },
 }
 
 // Return image-type tensor's dims with any layout.

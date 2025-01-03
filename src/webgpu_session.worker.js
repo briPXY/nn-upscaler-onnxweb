@@ -40,17 +40,18 @@ self.addEventListener('message', async (event) => {
             self.postMessage({ image: imageData, tensor: tensorBuffer, dims: outputTensor.dims });
             return
         }
- 
+
         event.data.InferenceOpt ? InferenceOpt = event.data.InferenceOpt : InferenceOpt;
         event.data.ModelInfo ? ModelInfo = event.data.ModelInfo : ModelInfo;
         event.data.env ? env = event.data.env : env;
         event.data.cfg ? cfg = event.data.cfg : cfg;
 
-        const provider = InferenceOpt.executionProviders[0] == 'wasm' ? 'wasm' : 'webgpu';
         const array32 = new Float32Array(event.data.inputArray);
 
-        // import budle from /dist/  
-        importScripts(cfg.backendPath[provider]);
+        // Import backend provider script  
+        if (typeof ort == 'undefined') {
+            importScripts(event.data.backendPath);
+        }
 
         setEnv(env);
 
@@ -78,9 +79,9 @@ self.onerror = (message, source, lineno, colno, error) => {
     // Handle or propagate the error as needed
 };
 
-self.onunhandledrejection = (event) => { 
+self.onunhandledrejection = (event) => {
     if (event.reason && event.reason.message.includes("GPUBuffer")) {
         console.error("WebGPU Error in Worker");
-        self.postMessage({gpuError: event.reason.message})
+        self.postMessage({ gpuError: event.reason.message })
     }
 };

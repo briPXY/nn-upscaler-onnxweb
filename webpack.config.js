@@ -54,7 +54,7 @@ module.exports = () => {
             path: path.resolve(__dirname, 'static', 'onnxruntime-web', 'dist'),
             filename: 'bundle.min.js',
             library: {
-                name: 'NNU',
+                name: 'wnx',
                 type: 'umd'
             }
         },

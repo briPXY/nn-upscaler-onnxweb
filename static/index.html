@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Image Upscaling ONNX</title>
+  <title>Web Inference Demo with ONNX</title>
   <link rel="stylesheet" href="index.css">
   <script src="/onnxruntime-web/dist/bundle.min.js"></script>
   <script id="onnx-backend"></script>
@@ -13,7 +13,7 @@
 
 <body>
   <section style="display: flex; align-items: center; justify-content: center;">
-    <h4>NN Image Upscaling - ONNX Web Runtime Demo</h4>
+    <h4>Web Inference Demo with ONNX: Image Processing Models</h4>
   </section>
   <section id="comparison-panel">
     <div class="comparison-container resp-border-radius" style="display: block;">
@@ -51,29 +51,29 @@
     </div>
   </section>
   <section class="upscaler-buttons" style="height: var(--h-btn);">
-    <select class="valSelect">
+    <select class="valSelect" data-s="0">
       <option value="null">-- Select model --</option>
     </select>
-    <select class="valSelect">
+    <select class="valSelect" data-s="0">
       <option value="auto">Runtime: auto</option>
     </select>
-    <button id="startInterference" style="z-index: 3;">Start Upscaling</button>
   </section>
-  <section id="loading" style="height: var(--h-btn);"> 
+  <section id="loading" style="height: var(--h-btn);">
     <button>Inference is running...</button>
   </section>
   <section id="convert-buttons" style="height: var(--h-btn);">
-    <select class="valSelect">
+    <select class="valSelect" data-s="0">
       <option value="jpeg">JPG</option>
       <option value="png">PNG</option>
       <option value="webp">WEBP</option>
       <option value="avif">AVIF</option>
     </select>
     <cfg-panel id="quality" style="display: grid;">
-      <div style="width: 60%;display: flex;font-size:small ;flex-direction: column;justify-self: center;justify-content: center;gap: 0.5em;">
+      <div
+        style="width: 60%;display: flex;font-size:small ;flex-direction: column;justify-self: center;justify-content: center;gap: 0.5em;">
         <div style="display: flex; justify-content: space-between; gap: 1em; width: 100%;">
           <label for="slider">Quality</label>
-          <output id="output">90</output> 
+          <output id="output">90</output>
         </div>
         <input type="range" id="slider" name="slider" min="0" max="100" value="90"
           oninput="output.value = slider.value">
@@ -81,12 +81,25 @@
     </cfg-panel>
     <button id="encodes" style="z-index: 3;">Save Image</button>
   </section>
-  <section style="height: 100%;justify-content: center;align-items: center;gap: 2px;">
+  <section style="height: var(--h-btn);">
+    <select class="valSelect" data-s="1">
+      <option value="true" selected>On worker</option>
+      <option value="false">On main thread</option>
+    </select>
+    <select class="valSelect" data-s="1">
+      <option value="1">chunk size: 1x</option>
+      <option value="2" selected>chunk size: 2x</option>
+      <option value="3">chunk size: 3x</option>
+      <option value="4">chunk size: 4x</option>
+    </select> 
+  </section>
+  <button id="startInterference" style="z-index: 3; max-width: var(--sec-w); height: var(--h-btn); ">Start Upscaling</button>
+  <section style="height: 100%;justify-content: center;align-items: center;gap: 2px;"> 
     <a href="https://github.com/briPXY/nn-upscaler-onnxweb" target="blank">
-      <img src="/assets/github-mark-white.svg" style="width: 1em;"/> 
+      <img src="/assets/github-mark-white.svg" style="width: 1em;" />
     </a>
     <a href="https://onnxruntime.ai/" target="blank">
-      <img src="/assets/ONNX-logo.svg" style="width: 1em;"/> 
+      <img src="/assets/ONNX-logo.svg" style="width: 1em;" />
     </a>
   </section>
 

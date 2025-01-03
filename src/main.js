@@ -1,26 +1,16 @@
-// import * as ort from 'onnxruntime-web';  // Bundling not includes webgpu backend despite stated true.
 import * as Image from './image_helper';
 import * as meta from './meta';
-import { cfg } from './cfg';
-import { OutputData, Dims, ChunkLevel, Model } from './types';
+import { cfg, backendPath, _env } from './cfg';
+import { OutputData, Dims, ChunkLevel, Model, TypedArray } from './types';
 
 // worker raw
 import sessionRawWorker from './webgpu_session.worker';
-
-// To be set on ort.env.
-export const _env = {
-    wasm: {},
-};
-
-_env.logLevel = 'info';
-_env.wasm.wasmPaths = `${cfg._defaultModulePath}`;
-_env.wasm.proxy = false;
-_env.wasm.numThreads = meta.threads.default;
 
 export const InferenceOpt = {
     executionProviders: meta.providers,
 };
 
+// Set pre-inference defined ort.env values.
 function _setEnv() {
     for (const key in _env) {
         if (typeof _env[key] !== 'object') {
@@ -65,9 +55,10 @@ export function setWebGPUFlags(flags = {}) {
     return;
 }
 
-export function setEnvFlag(prop = 'string', value) {
-    _env[prop] = value;
-    return;
+export function setEnvFlag(props) {
+    for (const prop in props) {
+        _env[prop] = props[prop];
+    }
 }
 
 export function setInferenceOption(obj = {}) {
@@ -78,11 +69,12 @@ export function setInferenceOption(obj = {}) {
 }
 
 // Set path for onnxweb runtime distributions. Will override all runtime provider path.
-export function setRuntimePath(url) {
+export function setRuntimePathAll(url) {
     /\/$/.test(url) ? url : url += '/';
-    _env.wasm.wasmPaths = url;
-    cfg.backendPath.webgpu = `${url}ort.webgpu.min.js`;
-    cfg.backendPath.wasm = `${url}ort.wasm.min.js`;
+    cfg._defaultModulePath = url;
+    backendPath.all = `${url}ort.all.min.js`;
+    backendPath.webgpu = `${url}ort.webgpu.min.js`;
+    backendPath.wasm = `${url}ort.wasm.min.js`;
 }
 
 const _setWebGpuExecProvider = (layout) => {
@@ -144,7 +136,6 @@ async function _sessionRunner(ModelInfo, output) {
     const input = d_in.shift();
     const inputTensor = new ort.Tensor(ModelInfo.dataType, input.tensor, input.dims);
     const session = await ort.InferenceSession.create(ModelInfo.url, InferenceOpt);
-
     const inputName = session.inputNames[0];
     const outputName = session.outputNames[0];
 
@@ -160,7 +151,7 @@ async function _sessionRunner(ModelInfo, output) {
     let outputTensor = result[outputName];
     const imageData = outputTensor.toImageData();
     const tensorBuffer = await outputTensor.getData()
-    output.tensor = Image.mergeTensors[ModelInfo.layout](output.tensor, tensorBuffer, output.imageData.height, imageData.height, imageData.width, ModelInfo.channel, ModelInfo.dataType);
+    output.tensor ? output.tensor = Image.mergeTensors[ModelInfo.layout](output.tensor, tensorBuffer, output.imageData.height, imageData.height, imageData.width, ModelInfo.channel, ModelInfo.dataType) : null;
 
     output.imageData.data = Image.concatUint8Arrays(output.imageData.data, imageData.data);
     output.imageData.width = imageData.width;
@@ -171,7 +162,7 @@ async function _sessionRunner(ModelInfo, output) {
     session.release();
 
     if (d_in.length > 0) {
-        await _sessionRunner(ModelInfo);
+        await _sessionRunner(ModelInfo, output);
     }
 
     output.dims = Dims(ModelInfo.layout, { W: output.imageData.width, H: output.imageData.height, C: ModelInfo.channel, N: 1 });
@@ -192,6 +183,7 @@ async function _sessionRunner_thread(ModelInfo, output) {
             dims: d_in[0].dims,
             cfg: cfg,
             env: _env,
+            backendPath: backendPath[InferenceOpt.executionProviders[0]],
             ModelInfo: ModelInfo,
             InferenceOpt: InferenceOpt
         }, [d_in[0].tensor.buffer]);
@@ -206,7 +198,7 @@ async function _sessionRunner_thread(ModelInfo, output) {
             if (event.data.tensor) {
                 d_in.shift();
                 const imageData = event.data.image;
-                output.tensor = Image.mergeTensors[ModelInfo.layout](output.tensor, event.data.tensor, output.imageData.height, imageData.height, imageData.width, ModelInfo.channel, ModelInfo.dataType);
+                output.tensor ? output.tensor = Image.mergeTensors[ModelInfo.layout](output.tensor, event.data.tensor, output.imageData.height, imageData.height, imageData.width, ModelInfo.channel, ModelInfo.dataType) : null;
                 output.imageData.data = Image.concatUint8Arrays(output.imageData.data, imageData.data);
                 output.imageData.width = imageData.width;
                 output.imageData.height += imageData.height;
@@ -254,17 +246,18 @@ export async function inferenceRun(model, input, output, inputWidth, inputHeight
 
         _validateParam(model, output);
         await _prepareInput(model, input, inputWidth, inputHeight);
-        _setEnv();
+        output.tensor = TypedArray[model.dataType](0);
 
         if (runtimeIsGPU) {
             // Force NCHW for webgpu if input is NCHW, because default is NHWC, this should be on basic onnxweb's docs!
-            ort.env.wasm.proxy = false;
+            setWasmFlags({ proxy: false });
             InferenceOpt.executionProviders = _setWebGpuExecProvider(model.layout);
             InferenceOpt.preferredOutputLocation = 'cpu';
         }
 
         if (!cfg.wasmGpuRunOnWorker) {
             await meta.loadBackendScript();
+            _setEnv();
         }
 
         const start = new Date();
@@ -289,4 +282,12 @@ export async function inferenceRun(model, input, output, inputWidth, inputHeight
     }
 }
 
-export { Image, meta, Model, OutputData, ChunkLevel, cfg };
+export { Image, meta, Model, OutputData, ChunkLevel, cfg, backendPath };
+
+Object.defineProperty(window, 'NNU', {
+    get: function() {
+        console.warn("The module name 'NNU' has been changed to 'wnx'. Please use 'wnx' instead.");
+        return wnx;
+    },
+    configurable: true
+});

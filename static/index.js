@@ -8,30 +8,17 @@ section.convert = document.getElementById('convert-buttons');
 section.upscale = document.querySelector('.upscaler-buttons');
 section.loading = document.getElementById('loading');
 
-let Output = null;
-let selectVal = {};
+let Output = null; 
 const inferenceOptions = {};
 var Models = {};
 
-optionSelect.forEach((el, i, s) => {
-    el.addEventListener('change', (e) => {
-        selectVal[`form${i}`] = e.target.value;
-        if (i == 1) {
-            inferenceOptions.executionProviders = [e.target.value];
-        }
-    })
-    el.options.selectedIndex = 0;
-})
- 
+optionSelect.forEach(el => {
+    el.value = el.options[Number(el.dataset.s)].value; 
+    const event = new Event('change');
+    el.dispatchEvent(event);
+}) 
 
-optionSelect[1].addEventListener('change', (e) => {
-    if (e.target.value == 'auto') {
-        inferenceOptions.executionProviders = ['webgpu', 'wasm'];
-        return;
-    }
-});
-
-NNU.meta.providers.forEach((e) => {
+wnx.meta.providers.forEach((e) => {
     const opt = document.createElement('option');
     opt.textContent = e;
     opt.value = e;
@@ -49,7 +36,7 @@ function sectionStates(states = {}) {
 sectionStates({ dropZone: 'flex', compPanel: 'none', convert: 'none', loading: 'none' });
 
 async function setModelList() {
-    Models = await NNU.meta.requestModelsCollections('/get-models-info'); 
+    Models = await wnx.meta.requestModelsCollections('/get-models-info'); 
     delete Models['readme.md'];
     for (const name in Models) {
         const opt = document.createElement('option');
@@ -188,15 +175,15 @@ document.querySelector('.close-button').addEventListener('click', (e) => {
 section.dropZone.addEventListener('click', () => { fInput.click() }); 
 
 pv.startBtn.style.display = 'none';
-NNU.handlers.chunkProcess.doneEvent = () => {
-    console.log(`a chunk no ${NNU.handlers.chunkProcess.total} processed`)
-    NNU.handlers.chunkProcess.total -= 1;
+wnx.handlers.chunkProcess.doneEvent = () => { 
+    wnx.handlers.chunkProcess.total -= 1;
+    section.loading.querySelector('button').textContent = `Inference is running... remaining chunks: ${wnx.handlers.chunkProcess.total}`;
 }
 
 document.getElementById('encodes').addEventListener('click', (e) => {
     const format = optionSelect[2].value;
     const quality = document.getElementById('output').textContent + 0;
-    NNU.Image.encodeRGBA(Output.imageData.data, Output.imageData.width, Output.imageData.height, quality, format).then(blob => {
+    wnx.Image.encodeRGBA(Output.imageData.data, Output.imageData.width, Output.imageData.height, quality, format).then(blob => {
         const url = URL.createObjectURL(blob); 
         const a = document.createElement('a');
         a.href = url;
@@ -228,22 +215,26 @@ fInput.addEventListener('change', async (e) => {
 
 pv.startBtn.addEventListener('click', async function () {
     try {
+        pv.startBtn.style.display = "none";
         sectionStates({ upscale: 'none', loading: 'flex' });
 
-        NNU.cfg.wasmGpuRunOnWorker = true;
-        NNU.setWasmFlags({ wasmPaths: 'http://localhost:3000/onnxruntime-web/dist/', proxy: false, numThreads: 8 });
-        NNU.setInferenceOption(inferenceOptions); 
-        const upscaleModel = new NNU.Model(Models[selectVal.form0]);
-        Output = new NNU.OutputData({includeTensor: false});
- 
-        await NNU.inferenceRun(upscaleModel, fInput.files[0], Output); 
+        wnx.cfg.wasmGpuRunOnWorker = optionSelect[3].value == "true";
+        wnx.cfg.avgChunkSize = Number(optionSelect[4].value);
+        wnx.setWasmFlags({ proxy: false, numThreads: 8 });
+        const provider = optionSelect[1].value == 'auto' ? ['webgpu', 'wasm'] : [optionSelect[1].value];
+        inferenceOptions.executionProviders =  provider;
+        wnx.setInferenceOption(inferenceOptions);
+
+        const upscaleModel = new wnx.Model(Models[optionSelect[0].value]);
+        Output = new wnx.OutputData({includeTensor: false});
+        await wnx.inferenceRun(upscaleModel, fInput.files[0], Output); 
 
         console.log('Inference finished', Output.imageData.data.length, '- Time to finish:', Output.time);
 
-        const imgsrc = await NNU.Image.imgUrlFromRGB(Output.imageData.data, Output.imageData.width, Output.imageData.height); 
+        const imgsrc = await wnx.Image.imgUrlFromRGB(Output.imageData.data, Output.imageData.width, Output.imageData.height); 
         pv.afterImg.src = imgsrc;
         
-        pv.resOriginSize.textContent = `${NNU.d_in.w}x${NNU.d_in.h}`;
+        pv.resOriginSize.textContent = `${wnx.d_in.w}x${wnx.d_in.h}`;
         document.getElementById('ai-model-value').textContent = `${Output.time} seconds`;
         document.getElementById('ai-multi-value').textContent = ` ${Output.multiplier}`
         document.querySelectorAll('.image-wrapper')[0].style.width = '50%';
@@ -252,6 +243,6 @@ pv.startBtn.addEventListener('click', async function () {
     catch (e) {
         alert(e);
         console.error(e);
-        sectionStates({ upscale: 'flex', loading: 'none' });
+        sectionStates({ dropZone: 'flex', compPanel: 'none', upscale: 'flex', convert: 'none', loading: 'none' });
     }
 });
