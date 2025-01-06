@@ -1,7 +1,7 @@
 # Web Neural Inference for Image Processing Models (ONNX)
 
-Easy interface for web neural network inference for image processing. Using ONNX runtime.
-Feature: Avoid browser/tab crash from bloated memory with chunked inference. Adapt to various input tensor layouts.
+Easy interface for inference ONNX models on the web browser, for image processing models. Utilizes ONNX web runtime.
+Features: Avoid page crash from bloated memory with chunked inference, create various input tensor layouts, preserve transparency for non-alpha (rgb) input.
 
 ## Usage
 
@@ -9,12 +9,15 @@ Feature: Avoid browser/tab crash from bloated memory with chunked inference. Ada
 ```bash
 # install dependecies
 npm install
+
 # build bundle.min.js and copied backends
 npx webpack 
+
 # run the demo server, open http://127.0.0.1 (use mainstream browsers for webgpu support)
 npm start
 ``` 
 _Select an image -> select models / runtime -> upscale_
+
 Bundle and it's backends will generated in static/, bundle.min.js is lightweight due to it's independent from ort module, the javascript backends and it's wasm URL can be provided externally like from a CDN, by assigning the urls on `wnx.backendPath.wasm` or `wnx.backendPath.ort` or `wnx.backendPath.all`.
 
 ## Runtime Backends
@@ -29,12 +32,12 @@ There is also webgl runtime but acts unexpected (dims/tensor layout always rejec
 ```javascript
 // Model instance and required infos.
 const upscaleModel = new wnx.Model('https://cdn-domain.com/path/to/model.onnx');
-UpscaleModel.dataType: 'float32';
-UpscaleModel.layout: 'NCHW';
-UpscaleModel.channel: 3;
+upscaleModel.dataType: 'float32';
+upscaleModel.layout: 'NCHW';
+upscaleModel.channel: 3;
 
 // OutputData instance.
-const output = new wnx.OutputData();
+const output = new wnx.OutputData({preserveAlpha: true});
 
 // Start inference with an image file from input.
 await wnx.inferenceRun(upscaleModel, fileInput.files[0], output);

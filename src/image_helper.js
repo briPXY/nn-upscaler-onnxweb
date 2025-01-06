@@ -9,7 +9,7 @@ const workerURL = URL.createObjectURL(workerBlob);
 
 var workerProcess;
 
-// create input data incl tensor array, return WxH
+// create tensors from a file input
 export async function prepareInputFromFile(nativeFIle, model, blob) {
 	return new Promise((resolve, reject) => {
 		const context = blob == null ? nativeFIle : blob;
@@ -21,7 +21,7 @@ export async function prepareInputFromFile(nativeFIle, model, blob) {
 
 			img.onload = async function () {
 
-				const inputData = await imgHelperThreadRun({
+				const result = await imgHelperThreadRun({
 					img: nativeFIle,
 					w: img.width,
 					h: img.height,
@@ -31,9 +31,9 @@ export async function prepareInputFromFile(nativeFIle, model, blob) {
 					modelChannels: model.channel,
 				}, 'decode-transpose');
 
-				inputData.forEach(e => d_in.push(e));
-				inputData.length = 0;
-				resolve(d_in.length);
+				result.tensorChunks.forEach(e => d_in.push(e));
+				result.tensorChunks.length = 0;
+				resolve({ totalChunks: d_in.length, alphaData: result.alphaData, prevData: result.prevData});
 			};
 			img.onerror = (error) => {
 				console.error("error reading file");
@@ -47,7 +47,7 @@ export async function prepareInputFromFile(nativeFIle, model, blob) {
 // Create input data + tensors from raw pixels (eg: external decoder)
 export async function prepareInputFromPixels(img = new Uint8Array(0), width = 0, height = 0, model) {
 	// decode-transpose input into float32 pixel data
-	const inputData = await imgHelperThreadRun({
+	const result = await imgHelperThreadRun({
 		img: img,
 		w: width,
 		h: height,
@@ -57,8 +57,8 @@ export async function prepareInputFromPixels(img = new Uint8Array(0), width = 0,
 		chunkSize: cfg.avgChunkSize,
 	}, 'transpose-pixels');
 
-	inputData.forEach(e => d_in.push(e));
-	inputData.length = 0;
+	result.forEach(e => d_in.push(e));
+	result.length = 0;
 	return d_in.length;
 }
 
@@ -145,6 +145,53 @@ export async function imgUrlFromRGB(array, width, height) {
 	const blob = await offscreenCanvas.convertToBlob();
 	const objectURL = URL.createObjectURL(blob);
 	return objectURL;
+}
+
+export function stashAlpha(source, dest) {
+	for (let i = 3; i < source.length; i += 4) {
+		dest.push(source[i]);
+	}
+}
+
+export function resizeAlphaData(alphaData, originalWidth, originalHeight, multiplier) {
+    const newWidth = Math.round(originalWidth * multiplier);
+    const newHeight = Math.round(originalHeight * multiplier);
+    const resizedAlphaData = new Array(newWidth * newHeight);
+
+    const xRatio = originalWidth / newWidth;
+    const yRatio = originalHeight / newHeight;
+
+    for (let newY = 0; newY < newHeight; newY++) {
+        for (let newX = 0; newX < newWidth; newX++) {
+            // Calculate the position in the original array
+            const origX = newX * xRatio;
+            const origY = newY * yRatio;
+
+            // Get the four surrounding pixels
+            const x1 = Math.floor(origX);
+            const y1 = Math.floor(origY);
+            const x2 = Math.min(x1 + 1, originalWidth - 1);
+            const y2 = Math.min(y1 + 1, originalHeight - 1);
+ 
+            const xWeight = origX - x1;
+            const yWeight = origY - y1;
+ 
+            const topLeft = alphaData[y1 * originalWidth + x1];
+            const topRight = alphaData[y1 * originalWidth + x2];
+            const bottomLeft = alphaData[y2 * originalWidth + x1];
+            const bottomRight = alphaData[y2 * originalWidth + x2];
+
+            // Bilinear interpolation
+            const top = topLeft * (1 - xWeight) + topRight * xWeight;
+            const bottom = bottomLeft * (1 - xWeight) + bottomRight * xWeight;
+            const value = top * (1 - yWeight) + bottom * yWeight;
+
+            // Assign the calculated value to the resized array
+            resizedAlphaData[newY * newWidth + newX] = Math.round(value);
+        }
+    }
+
+    return resizedAlphaData;
 }
 
 // Encode to image format with Canvas API

@@ -11,18 +11,17 @@ function transposeToTensor(data, channels = 3, modelChannels) {
 	const modelAllowAlpha = modelChannels == 4;
 
 	if (tensorLayout == 'NHWC') {
-		if (channels == 4 && !modelAllowAlpha) { // Input is 4 channels and model is 3 channels.
+		if (channels == 4 && !modelAllowAlpha) { // Input 4 channels, model require 3.
 			const rgb = [];
 			for (let i = 0; i < data.length; i += channels) {
 				rgb[i] = data[i];
 				rgb[i + 1] = data[i + 1];
 				rgb[i + 2] = data[i + 2];
-				// Skip alpha.
 			}
 			return rgb;
 		}
 		if (channels == 3 && modelAllowAlpha) {
-			return addAlphaToRGB(data); // Input 3 channels, model need 4.
+			return addAlphaToRGB(data); // Input 3 channels, model require 4.
 		}
 		else {
 			return data;
@@ -307,8 +306,15 @@ self.onmessage = async function (event) {
 	if (event.data.context == "decode-transpose") { // Input is native image File object.
 		loadImage(input)
 			.then((pixels) => {
-				let tensorChunks = [];
+				let tensorChunks = [], retainedAlpha = [];
 				const channels = input.length == (width * height * 3) ? 3 : 4;
+
+				if (channels == 4 && data.modelChannels == 3) {
+					for (let i = 3; i < pixels.length; i += 4) {
+						retainedAlpha.push(pixels[i]);
+					}
+				}
+
 				const pixelChunks = pixelsSlicer(pixels, data.chunkSize, width, height, channels);
 
 				for (let i = 0; i < pixelChunks.length; i++) {
@@ -317,7 +323,7 @@ self.onmessage = async function (event) {
 					tensorChunks.push({ tensor: tensorArrayFloat, dims: dims, w: width, h: pixelChunks[i].h, c: data.modelChannels });
 				}
 				// Send the processed data back to the main threa
-				self.postMessage(tensorChunks);
+				self.postMessage({ tensorChunks: tensorChunks, alphaData: retainedAlpha, prevData: { w: width, h: height, channels: channels } });
 				tensorChunks = null;
 				return;
 			})

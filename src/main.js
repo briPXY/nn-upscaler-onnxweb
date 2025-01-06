@@ -94,10 +94,13 @@ function _validateParam(model, output) {
 }
 
 // Populates d_in (input data) with chunks of tensor.
-async function _prepareInput(model, input, width, height) {
+async function _prepareInput(model, input, output, width, height) {
 
     if (input instanceof File) {
-        handlers.chunkProcess.total = await Image.prepareInputFromFile(input, model);
+        const result = await Image.prepareInputFromFile(input, model);
+        handlers.chunkProcess.total = result.totalChunks;
+        output.alphaData = result.alphaData;
+        output.prevData = result.prevData;
         return;
     }
 
@@ -105,7 +108,15 @@ async function _prepareInput(model, input, width, height) {
         if (!width || !height) {
             throw 'Width amd height are required for TypedArray input (Uint8Array).'
         }
-        await Image.prepareInputFromPixels(input, width, height, model);
+
+        output.prevData = { w: width, h: height, channel: 3 }
+
+        if (model.channel == 3 && input.length == (4 * width * height)) {
+            output.prevData.channel = 4;
+            Image.stashAlpha(input, output.alphaData);
+        }
+
+        handlers.chunkProcess.total = await Image.prepareInputFromPixels(input, width, height, model);
         return;
     }
 
@@ -167,6 +178,7 @@ async function _sessionRunner(ModelInfo, output) {
 
     output.dims = Dims(ModelInfo.layout, { W: output.imageData.width, H: output.imageData.height, C: ModelInfo.channel, N: 1 });
     output.multiplier = output.imageData.width / input.w;
+    output._finish = true;
 
     return;
 }
@@ -183,7 +195,7 @@ async function _sessionRunner_thread(ModelInfo, output) {
             dims: d_in[0].dims,
             cfg: cfg,
             env: _env,
-            backendPath: backendPath[InferenceOpt.executionProviders[0]],
+            backendPath: InferenceOpt.executionProviders[0] == 'wasm' ? backendPath._wasm : backendPath.webgpu,
             ModelInfo: ModelInfo,
             InferenceOpt: InferenceOpt
         }, [d_in[0].tensor.buffer]);
@@ -204,8 +216,9 @@ async function _sessionRunner_thread(ModelInfo, output) {
                 output.imageData.height += imageData.height;
 
                 if (d_in.length === 0) {
-                    output.multiplier = imageData.width / d_in.w
+                    output.multiplier = imageData.width / output.prevData.w;
                     output.dims = Dims(ModelInfo.layout, { W: output.imageData.width, H: output.imageData.height, C: ModelInfo.channel, N: 1 });
+                    output._finish = true;
                     webGPUWorker.postMessage('cleanup');
                     webGPUWorker.terminate();
                     resolve('done');
@@ -245,7 +258,7 @@ export async function inferenceRun(model, input, output, inputWidth, inputHeight
         const runtimeIsGPU = InferenceOpt.executionProviders[0] == 'webgpu' && !!navigator.gpu;
 
         _validateParam(model, output);
-        await _prepareInput(model, input, inputWidth, inputHeight);
+        await _prepareInput(model, input, output, inputWidth, inputHeight);
         output.tensor = TypedArray[model.dataType](0);
 
         if (runtimeIsGPU) {
@@ -285,7 +298,7 @@ export async function inferenceRun(model, input, output, inputWidth, inputHeight
 export { Image, meta, Model, OutputData, ChunkLevel, cfg, backendPath };
 
 Object.defineProperty(window, 'NNU', {
-    get: function() {
+    get: function () {
         console.warn("The module name 'NNU' has been changed to 'wnx'. Please use 'wnx' instead.");
         return wnx;
     },

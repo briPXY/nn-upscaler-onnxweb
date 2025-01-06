@@ -1,17 +1,24 @@
+import { resizeAlphaData } from "./image_helper";
+
 export class OutputData {
-    constructor({ includeTensor = true } = {}) {
+    constructor({ includeTensor = true, preserveAlpha = true } = {}) {
         this.includeTensor = includeTensor;
+        this.preserveAlpha = preserveAlpha; // Only if model require 3 channels and input has 4.
     }
 
     includeTensor = true;
+    preserveAlpha = true;
+    #locked = false;
 
     tensorChunks;
     multiplier;
     imageData = {
         data: new Uint8Array(),
         width: 0,
-        height: 0
+        height: 0,
     };
+    alphaData = [];
+    prevData = {};
 
     get tensor() {
         return this._tensor;
@@ -24,6 +31,30 @@ export class OutputData {
             this._tensor = value;
         }
     }
+
+    /**
+     * @param {boolean} cond
+     */
+    set _finish(cond) {
+        if (!cond || !this.preserveAlpha || this.#locked) {
+            return;
+        }
+        if (this.multiplier == 1 && this.alphaData.length > 0 && this.preserveAlpha) {
+            this.insertAlpha();
+        }
+        if (this.multiplier > 1 && this.alphaData.length > 0 && this.preserveAlpha) {
+            this.alphaData = resizeAlphaData(this.alphaData, this.prevData.w, this.prevData.h, this.multiplier);
+            this.insertAlpha();
+        }
+        this.#locked = true;
+    }
+
+    insertAlpha() {
+        for (let i = 0, j = 3; i < this.alphaData.length; i++, j+=4) {
+            this.imageData.data[j] = this.alphaData[i];      
+        } 
+    }
+
 }
 
 export const TypedArray = {
