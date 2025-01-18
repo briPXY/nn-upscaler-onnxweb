@@ -6,6 +6,7 @@ var tensorLayout = 'NCHW';
 var dataType = 'float32';
 //#region data conversion
 
+/* Leverage ort Tensor constructor
 // Make pixel array into tensor layout, output is still in 8bit. Channels is input channel (not model).
 function transposeToTensor(data, channels = 3, modelChannels) {
 	const modelAllowAlpha = modelChannels == 4;
@@ -46,6 +47,14 @@ function transposeToTensor(data, channels = 3, modelChannels) {
 		return nchwData;
 	}
 }
+
+function makeInputTensor(pixels, imgChannels, width, height, modelChannels) {
+	const tensorArray8bit = transposeToTensor(pixels, imgChannels, modelChannels);
+	const tensorArrayFloat = createFloatArray(width, height, modelChannels);
+	convertToFloat(tensorArray8bit, tensorArrayFloat);
+	return tensorArrayFloat;
+} 
+*/
 
 function tensorToRGB(tensorData, width, height, channels) { // For NCHW tensor output layout
 	const data = new Uint8Array(width * height * channels);
@@ -131,13 +140,6 @@ function tensorNCHW_to_RGB16(tensor, dims) {
 		}
 	}
 	return rgba16bit;
-}
-
-function makeInputTensor(pixels, imgChannels, width, height, modelChannels) {
-	const tensorArray8bit = transposeToTensor(pixels, imgChannels, modelChannels);
-	const tensorArrayFloat = createFloatArray(width, height, modelChannels);
-	convertToFloat(tensorArray8bit, tensorArrayFloat);
-	return tensorArrayFloat;
 }
 
 function makeDims(layout, { W = 0, H = 0, C = 3, N = 1 }) {
@@ -254,7 +256,7 @@ function pixelsSlicer(pixels, chunkSize, width, height, channels) {
 	const pixelChunks = [];
 
 	if (width * height <= chunkSize) {
-		return [{ data: pixels, h: height }];
+		return [{ data: pixels, h: height, w: width }];
 	}
 
 	const chunkHeight = Math.round(chunkSize / width);
@@ -262,11 +264,11 @@ function pixelsSlicer(pixels, chunkSize, width, height, channels) {
 
 	for (let i = 0; i < pixels.length;) {
 		if (i + sliceSize >= pixels.length) {
-			pixelChunks.push({ data: pixels.slice(i), h: height });
+			pixelChunks.push({ data: pixels.slice(i), h: height, w: width });
 			break;
 		}
 
-		pixelChunks.push({ data: pixels.slice(i, i + sliceSize), h: chunkHeight });
+		pixelChunks.push({ data: pixels.slice(i, i + sliceSize), h: chunkHeight, w: width });
 		height -= chunkHeight;
 		i += sliceSize;
 	}
@@ -285,24 +287,31 @@ self.onmessage = async function (event) {
 	tensorLayout = data.layout;
 	dataType = data.dataType;
 
-	// Create tensor array from pixels.
+	// Create sliced image from typed array.
 	if (event.data.context == 'transpose-pixels') { // Input is rgb/a pixels (uint8).
 		const channels = input.length == (width * height * 3) ? 3 : 4;
-		let tensorChunks = [];
+		let tensorChunks = [], retainedAlpha = [];
+
+		if (channels == 4 && data.modelChannels == 3) {
+			for (let i = 3; i < pixels.length; i += 4) {
+				retainedAlpha.push(pixels[i]);
+			}
+		}
 		const pixelChunks = pixelsSlicer(input, data.chunkSize, width, height, channels);
 
 		for (let i = 0; i < pixelChunks.length; i++) {
-			const tensorArrayFloat = makeInputTensor(pixelChunks[i].data, channels, width, pixelChunks[i].h, data.modelChannels);
+			// const tensorArrayFloat = makeInputTensor(pixelChunks[i].data, channels, width, pixelChunks[i].h, data.modelChannels);
 			const dims = makeDims(tensorLayout, { C: data.modelChannels, N: 1, W: width, H: pixelChunks[i].h });
-			tensorChunks.push({ tensor: tensorArrayFloat, dims: dims, w: width, h: pixelChunks[i].h, c: data.modelChannels });
+			pixelChunks[i].dims = dims;
+			//tensorChunks.push({ tensor: tensorArrayFloat, dims: dims, w: width, h: pixelChunks[i].h, c: data.modelChannels });
 		}
 
-		self.postMessage(tensorChunks);
+		self.postMessage({ tensorChunks: pixelChunks, alphaData: retainedAlpha, prevData: { w: width, h: height, channels: channels } });
 		tensorChunks = null;
 		return;
 	}
 
-	// Create tensor array from image File.
+	// Create sliced image from image File.
 	if (event.data.context == "decode-transpose") { // Input is native image File object.
 		loadImage(input)
 			.then((pixels) => {
@@ -318,12 +327,13 @@ self.onmessage = async function (event) {
 				const pixelChunks = pixelsSlicer(pixels, data.chunkSize, width, height, channels);
 
 				for (let i = 0; i < pixelChunks.length; i++) {
-					const tensorArrayFloat = makeInputTensor(pixelChunks[i].data, channels, width, pixelChunks[i].h, data.modelChannels);
+					// const tensorArrayFloat = makeInputTensor(pixelChunks[i].data, channels, width, pixelChunks[i].h, data.modelChannels);
 					const dims = makeDims(tensorLayout, { C: data.modelChannels, N: 1, W: width, H: pixelChunks[i].h });
-					tensorChunks.push({ tensor: tensorArrayFloat, dims: dims, w: width, h: pixelChunks[i].h, c: data.modelChannels });
+					pixelChunks[i].dims = dims;
+					// tensorChunks.push({ tensor: tensorArrayFloat, dims: dims, w: width, h: pixelChunks[i].h, c: data.modelChannels });
 				}
 				// Send the processed data back to the main threa
-				self.postMessage({ tensorChunks: tensorChunks, alphaData: retainedAlpha, prevData: { w: width, h: height, channels: channels } });
+				self.postMessage({ tensorChunks: pixelChunks, alphaData: retainedAlpha, prevData: { w: width, h: height, channels: channels } });
 				tensorChunks = null;
 				return;
 			})

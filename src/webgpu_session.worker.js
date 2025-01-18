@@ -56,7 +56,11 @@ self.addEventListener('message', async (event) => {
         setEnv(env);
 
         session = await ort.InferenceSession.create(ModelInfo.url, InferenceOpt);
-        inputTensor = new ort.Tensor(ModelInfo.dataType, array32, event.data.dims);
+        inputTensor = await ort.Tensor.fromImage(event.data.bitmap, { 
+            dataType: ModelInfo.dataType, 
+            tensorLayout: ModelInfo.layout.toUpperCase(), 
+            tensorFormat: ModelInfo.channel == 3? 'RGB' : 'RGBA',
+        });
         const inputName = session.inputNames[0];
         outputName = session.outputNames[0];
 

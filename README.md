@@ -1,7 +1,7 @@
 # Web Neural Inference for Image Processing Models (ONNX)
 
 Easy interface for inference ONNX models on the web browser, for image processing models. Utilizes ONNX web runtime.
-Features: Avoid page crash from bloated memory with chunked inference, create various input tensor layouts, preserve transparency for non-alpha (rgb) input.
+Features: Inference on each sliced images for AI models which input tensor's dimension values is non-determined, to prevent page crash from large input/model (browser's memory limit policy). Preserve transparency for rgba input.
 
 ## Usage
 
@@ -71,12 +71,11 @@ const imageData16 = await wnx.Image.tensorToRGB16_NCHW(output.tensor)
 ```
 
 ## Included Models
-
-| Architecture| Model                  | Scale | Tensor   | Layout  | Original Format |
+| Architecture| Model| Scale | Tensor   | Layout  | Original Format |
 | ----------- | ---------------------- | ----- | -------- | ------- | --------------- |
-| SPAN        | ClearRealityV1         | 4     | float32  | NCHW    | .onnx           |
-| Real-ESRGAN | NomosUni-otf-medium    | 2     | float32  | NCHW    | .pth            |
-| SPAN        | NomosUni-multijpg-ldl  | 2     | float32  | NCHW    | .pth            |
+| SPAN        | [ClearRealityV1](https://openmodeldb.info/models/4x-ClearRealityV1)| 4     | float32  | NCHW    | .onnx  |
+| Real-ESRGAN | [NomosUni-otf-medium](https://openmodeldb.info/models/2x-NomosUni-compact-otf-medium)    | 2     | float32  | NCHW    | .pth   |
+| SPAN        | [NomosUni-multijpg-ldl](https://openmodeldb.info/models/2x-NomosUni-span-multijpg-ldl)  | 2     | float32  | NCHW    | .pth   |
 
 
 ## Additional Informations
@@ -93,9 +92,5 @@ Putting your own model in model subfolders ordered by formats make your model au
 [https://pixaya.app](https://pixaya.app)
 
 ### Models & 3rd Party Credits
-
-- [ClearRealityV1](https://openmodeldb.info/models/4x-ClearRealityV1) / [SPAN](https://github.com/hongyuanyu/SPAN)
-- [NomosUni compact otf medium](https://openmodeldb.info/models/2x-NomosUni-compact-otf-medium)
-- [NomosUni span multijpg ldl](https://openmodeldb.info/models/2x-NomosUni-span-multijpg-ldl) / [SPAN](https://github.com/hongyuanyu/SPAN)
 - [microsoft/onnxruntime](https://github.com/microsoft/onnxruntime)
 - [fastify/fastify](https://github.com/fastify/fastify)

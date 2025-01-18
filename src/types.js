@@ -40,16 +40,16 @@ export class OutputData {
             return;
         }
         if (this.multiplier == 1 && this.alphaData.length > 0 && this.preserveAlpha) {
-            this.insertAlpha();
+            this.replaceAlpha();
         }
         if (this.multiplier > 1 && this.alphaData.length > 0 && this.preserveAlpha) {
             this.alphaData = resizeAlphaData(this.alphaData, this.prevData.w, this.prevData.h, this.multiplier);
-            this.insertAlpha();
+            this.replaceAlpha();
         }
         this.#locked = true;
     }
 
-    insertAlpha() {
+    replaceAlpha() {
         for (let i = 0, j = 3; i < this.alphaData.length; i++, j+=4) {
             this.imageData.data[j] = this.alphaData[i];      
         } 

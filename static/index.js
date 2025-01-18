@@ -8,15 +8,15 @@ section.convert = document.getElementById('convert-buttons');
 section.upscale = document.querySelector('.upscaler-buttons');
 section.loading = document.getElementById('loading');
 
-let Output = null; 
+let Output = null;
 const inferenceOptions = {};
 var Models = {};
 
 optionSelect.forEach(el => {
-    el.value = el.options[Number(el.dataset.s)].value; 
+    el.value = el.options[Number(el.dataset.s)].value;
     const event = new Event('change');
     el.dispatchEvent(event);
-}) 
+})
 
 wnx.meta.providers.forEach((e) => {
     const opt = document.createElement('option');
@@ -36,13 +36,15 @@ function sectionStates(states = {}) {
 sectionStates({ dropZone: 'flex', compPanel: 'none', convert: 'none', loading: 'none' });
 
 async function setModelList() {
-    Models = await wnx.meta.requestModelsCollections('/get-models-info'); 
+    Models = await wnx.meta.requestModelsCollections('/get-models-info');
     delete Models['readme.md'];
     for (const name in Models) {
-        const opt = document.createElement('option');
-        opt.textContent = name;
-        opt.value = name;
-        optionSelect[0].appendChild(opt);
+        if (!/\.gitignore/i.test(name)) {
+            const opt = document.createElement('option');
+            opt.textContent = name;
+            opt.value = name;
+            optionSelect[0].appendChild(opt);
+        }
     }
 }
 
@@ -172,10 +174,10 @@ document.querySelector('.close-button').addEventListener('click', (e) => {
     fInput.value = '';
 })
 
-section.dropZone.addEventListener('click', () => { fInput.click() }); 
+section.dropZone.addEventListener('click', () => { fInput.click() });
 
 pv.startBtn.style.display = 'none';
-wnx.handlers.chunkProcess.doneEvent = () => { 
+wnx.handlers.chunkProcess.doneEvent = () => {
     wnx.handlers.chunkProcess.total -= 1;
     section.loading.querySelector('button').textContent = `Inference is running... remaining chunks: ${wnx.handlers.chunkProcess.total}`;
 }
@@ -184,23 +186,23 @@ document.getElementById('encodes').addEventListener('click', (e) => {
     const format = optionSelect[2].value;
     const quality = document.getElementById('output').textContent + 0;
     wnx.Image.encodeRGBA(Output.imageData.data, Output.imageData.width, Output.imageData.height, quality, format).then(blob => {
-        const url = URL.createObjectURL(blob); 
+        const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
         a.download = `upscaled_image.${format}`;
-        a.click(); 
+        a.click();
         URL.revokeObjectURL(url);
     });
 });
- 
+
 
 fInput.addEventListener('change', async (e) => {
-    try { 
+    try {
         const file = e.target.files[0]; // Get the selected file
         const reader = new FileReader();
-        reader.onload = function (event) { 
-            const blob = new Blob([reader.result], { type: file.type });  
-            const objectURL = URL.createObjectURL(blob); 
+        reader.onload = function (event) {
+            const blob = new Blob([reader.result], { type: file.type });
+            const objectURL = URL.createObjectURL(blob);
             pv.beforeImg.src = objectURL;
             pv.startBtn.style.display = 'block';
             sectionStates({ dropZone: 'none', compPanel: 'flex' });
@@ -222,18 +224,18 @@ pv.startBtn.addEventListener('click', async function () {
         wnx.cfg.avgChunkSize = Number(optionSelect[4].value);
         wnx.setWasmFlags({ proxy: false, numThreads: 8 });
         const provider = optionSelect[1].value == 'auto' ? ['webgpu', 'wasm'] : [optionSelect[1].value];
-        inferenceOptions.executionProviders =  provider;
+        inferenceOptions.executionProviders = provider;
         wnx.setInferenceOption(inferenceOptions);
 
         const upscaleModel = new wnx.Model(Models[optionSelect[0].value]);
-        Output = new wnx.OutputData({includeTensor: false});
-        await wnx.inferenceRun(upscaleModel, fInput.files[0], Output); 
+        Output = new wnx.OutputData({ includeTensor: false });
+        await wnx.inferenceRun(upscaleModel, fInput.files[0], Output);
 
         console.log('Inference finished', Output.imageData.data.length, '- Time to finish:', Output.time);
 
-        const imgsrc = await wnx.Image.imgUrlFromRGB(Output.imageData.data, Output.imageData.width, Output.imageData.height); 
+        const imgsrc = await wnx.Image.imgUrlFromRGB(Output.imageData.data, Output.imageData.width, Output.imageData.height);
         pv.afterImg.src = imgsrc;
-        
+
         pv.resOriginSize.textContent = `${wnx.d_in.w}x${wnx.d_in.h}`;
         document.getElementById('ai-model-value').textContent = `${Output.time} seconds`;
         document.getElementById('ai-multi-value').textContent = ` ${Output.multiplier}`

@@ -33,7 +33,7 @@ export async function prepareInputFromFile(nativeFIle, model, blob) {
 
 				result.tensorChunks.forEach(e => d_in.push(e));
 				result.tensorChunks.length = 0;
-				resolve({ totalChunks: d_in.length, alphaData: result.alphaData, prevData: result.prevData});
+				resolve({ totalChunks: d_in.length, alphaData: result.alphaData, prevData: result.prevData });
 			};
 			img.onerror = (error) => {
 				console.error("error reading file");
@@ -130,6 +130,42 @@ export const mergeTensors = {
 }
 
 
+/**
+ * Function to create an ImageBitmap from RGB data
+ * @param {number} width - The width of the image
+ * @param {number} height - The height of the image
+ * @param {Uint8Array} rgbData - The RGB data as a Uint8Array
+ * @returns {Promise<ImageBitmap>} - Returns a promise that resolves to an ImageBitmap
+ */
+export async function createImageBitmapFromRGB(width, height, rgbData) {
+	const noAlpha = rgbData.length == width * height * 3;
+	const channels = noAlpha + 3;
+	const canvas = document.createElement('canvas');
+	canvas.width = width;
+	canvas.height = height;
+	const ctx = canvas.getContext('2d');
+
+	const imageData = ctx.createImageData(width, height);
+
+	if (channels == 3) {
+		for (let i = 0; i < rgbData.length; i += channels) {
+			imageData.data[i] = rgbData[i];       // Red
+			imageData.data[i + 1] = rgbData[i + 1]; // Green
+			imageData.data[i + 2] = rgbData[i + 2]; // Blue
+			imageData.data[i + 3] = 255;           // add Alpha (opaque)
+		}
+	}
+	else {
+		imageData.data.set(rgbData);
+	}
+
+	ctx.putImageData(imageData, 0, 0);
+	const imageBitmap = await createImageBitmap(imageData);
+
+	return imageBitmap;
+}
+
+
 // Create obj url from RGB for preview
 export async function imgUrlFromRGB(array, width, height) {
 
@@ -154,44 +190,44 @@ export function stashAlpha(source, dest) {
 }
 
 export function resizeAlphaData(alphaData, originalWidth, originalHeight, multiplier) {
-    const newWidth = Math.round(originalWidth * multiplier);
-    const newHeight = Math.round(originalHeight * multiplier);
-    const resizedAlphaData = new Array(newWidth * newHeight);
+	const newWidth = Math.round(originalWidth * multiplier);
+	const newHeight = Math.round(originalHeight * multiplier);
+	const resizedAlphaData = new Array(newWidth * newHeight);
 
-    const xRatio = originalWidth / newWidth;
-    const yRatio = originalHeight / newHeight;
+	const xRatio = originalWidth / newWidth;
+	const yRatio = originalHeight / newHeight;
 
-    for (let newY = 0; newY < newHeight; newY++) {
-        for (let newX = 0; newX < newWidth; newX++) {
-            // Calculate the position in the original array
-            const origX = newX * xRatio;
-            const origY = newY * yRatio;
+	for (let newY = 0; newY < newHeight; newY++) {
+		for (let newX = 0; newX < newWidth; newX++) {
+			// Calculate the position in the original array
+			const origX = newX * xRatio;
+			const origY = newY * yRatio;
 
-            // Get the four surrounding pixels
-            const x1 = Math.floor(origX);
-            const y1 = Math.floor(origY);
-            const x2 = Math.min(x1 + 1, originalWidth - 1);
-            const y2 = Math.min(y1 + 1, originalHeight - 1);
- 
-            const xWeight = origX - x1;
-            const yWeight = origY - y1;
- 
-            const topLeft = alphaData[y1 * originalWidth + x1];
-            const topRight = alphaData[y1 * originalWidth + x2];
-            const bottomLeft = alphaData[y2 * originalWidth + x1];
-            const bottomRight = alphaData[y2 * originalWidth + x2];
+			// Get the four surrounding pixels
+			const x1 = Math.floor(origX);
+			const y1 = Math.floor(origY);
+			const x2 = Math.min(x1 + 1, originalWidth - 1);
+			const y2 = Math.min(y1 + 1, originalHeight - 1);
 
-            // Bilinear interpolation
-            const top = topLeft * (1 - xWeight) + topRight * xWeight;
-            const bottom = bottomLeft * (1 - xWeight) + bottomRight * xWeight;
-            const value = top * (1 - yWeight) + bottom * yWeight;
+			const xWeight = origX - x1;
+			const yWeight = origY - y1;
 
-            // Assign the calculated value to the resized array
-            resizedAlphaData[newY * newWidth + newX] = Math.round(value);
-        }
-    }
+			const topLeft = alphaData[y1 * originalWidth + x1];
+			const topRight = alphaData[y1 * originalWidth + x2];
+			const bottomLeft = alphaData[y2 * originalWidth + x1];
+			const bottomRight = alphaData[y2 * originalWidth + x2];
 
-    return resizedAlphaData;
+			// Bilinear interpolation
+			const top = topLeft * (1 - xWeight) + topRight * xWeight;
+			const bottom = bottomLeft * (1 - xWeight) + bottomRight * xWeight;
+			const value = top * (1 - yWeight) + bottom * yWeight;
+
+			// Assign the calculated value to the resized array
+			resizedAlphaData[newY * newWidth + newX] = Math.round(value);
+		}
+	}
+
+	return resizedAlphaData;
 }
 
 // Encode to image format with Canvas API

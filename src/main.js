@@ -141,11 +141,25 @@ async function _prepareInput(model, input, output, width, height) {
     throw 'Invalid input params';
 }
 
+async function _createTensor(input, model){
+    const bitmap = await Image.createImageBitmapFromRGB(input.w, input.h, new Uint8Array(input.data));
+    const tensor = await ort.Tensor.fromImage(bitmap, { 
+        dataType: model.dataType, 
+        tensorLayout: model.layout.toUpperCase(), 
+        tensorFormat: model.channel == 3? 'RGB' : 'RGBA',
+    });
+    bitmap = null;
+    input = null;
+    return tensor;
+}
 
 // Running the session on main thread, return output tensor.
 async function _sessionRunner(ModelInfo, output) {
     const input = d_in.shift();
-    const inputTensor = new ort.Tensor(ModelInfo.dataType, input.tensor, input.dims);
+
+    const inputTensor = await _createTensor(input, ModelInfo);
+    // const inputTensor = new ort.Tensor(ModelInfo.dataType, tensor, input.dims);
+
     const session = await ort.InferenceSession.create(ModelInfo.url, InferenceOpt);
     const inputName = session.inputNames[0];
     const outputName = session.outputNames[0];
@@ -185,20 +199,21 @@ async function _sessionRunner(ModelInfo, output) {
 
 // Running the session on worker, return output image data or buffer. Since only serializable data can be transferred between workers.
 async function _sessionRunner_thread(ModelInfo, output) {
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
         const workerBlob = new Blob([sessionRawWorker], { type: 'application/javascript' });
         const workerURL = URL.createObjectURL(workerBlob);
         const webGPUWorker = new Worker(workerURL);
+        const bitmap = await Image.createImageBitmapFromRGB(d_in[0].w, d_in[0].h, new Uint8Array(d_in[0].data));
 
         webGPUWorker.postMessage({
-            inputArray: d_in[0].tensor.buffer,
+            bitmap: bitmap,
             dims: d_in[0].dims,
             cfg: cfg,
             env: _env,
             backendPath: InferenceOpt.executionProviders[0] == 'wasm' ? backendPath._wasm : backendPath.webgpu,
             ModelInfo: ModelInfo,
             InferenceOpt: InferenceOpt
-        }, [d_in[0].tensor.buffer]);
+        }, [bitmap]);
 
         // Web worker only post result
         webGPUWorker.onmessage = async (event) => {
@@ -225,12 +240,13 @@ async function _sessionRunner_thread(ModelInfo, output) {
                     return;
                 }
 
-                // Cycle for next chunk.
+                // Cycle next chunk.
+                const bitmap = await Image.createImageBitmapFromRGB(d_in[0].w, d_in[0].h, new Uint8Array(d_in[0].data));
                 webGPUWorker.postMessage('cleanup');
                 webGPUWorker.postMessage({
-                    inputArray: d_in[0].tensor.buffer,
+                    bitmap: bitmap,
                     dims: d_in[0].dims,
-                }, [d_in[0].tensor.buffer]);
+                }, [bitmap]);
 
             }
             if (event.data.gpuError) {
@@ -249,7 +265,7 @@ async function _sessionRunner_thread(ModelInfo, output) {
 /**
  * Run the model inference.
  * @param {Object} model - ONNX model information from Model instance.
- * @param {Object} input; - Can be uint8array of pixels or File object from file input. For uint8array input, 3rd and 4th param is necessary.  
+ * @param {Object} input; - Can be uint8array of pixels or File object from file input. For typed array input, 3rd and 4th param is necessary.  
  * @param {number} inputWidth - Only required if using TypedArray as input.
  * @param {number} inputHeight - Only required if using TypedArray as input.
  */
