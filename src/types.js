@@ -1,4 +1,4 @@
-import { resizeRGBACanvas } from "./image_helper";
+import { resizeRGBACanvas, mergeVertical, insertNewTile, mergeTensorsVertical } from "./image_helper";
 
 export class OutputData {
     includeTensor = true;
@@ -6,12 +6,13 @@ export class OutputData {
     dumpOriginalImageData = false;
 
     #locked = false;
-    _havePadding = false;
     _insert = "insertVertical";
 
-    tensorChunks;
     multiplier;
+    _tileDim;
+    #tilePos = { x: 0, y: 0 };
 
+    tensor;
     imageData = {
         data: new Uint8Array(),
         width: 0,
@@ -25,6 +26,8 @@ export class OutputData {
         resized: null,
     };
 
+    _prePadding = {} // Pre-padding original dimensions for cropping
+
     constructor({ includeTensor = true, preserveAlpha = true, dumpOriginalImageData = false } = {}) {
         this.includeTensor = includeTensor;
         this.preserveAlpha = preserveAlpha; // Only if model require 3 channels and input has 4.
@@ -35,64 +38,56 @@ export class OutputData {
      * @param {string} v
      */
     set insert(v) {
-        this._insert = v;
-    }
-
-    get tensor() {
-        return this._tensor;
-    }
-    /**
-     * @param {TypedArray} value
-     */
-    set tensor(value) {
-        if (this.includeTensor) {
-            this._tensor = value;
-        }
+        this._insert = '_' + v;
     }
 
     /**
+     * Operations after full-image/chunks inferences 
      * @param {boolean} cond
      */
-    set _finish(cond) {
-        if (!cond || !this.preserveAlpha || this.#locked) {
+    set finish(cond) {
+        if (!cond || this.#locked) {
             return;
         }
+
+        this.multiplier = this.imageData.width / this.prevData.w;
+
         if (this.multiplier == 1 && this.alphaData.length > 0 && this.preserveAlpha) {
-            this.replaceAlpha();
+            this.#replaceAlpha();
         }
-        if (this.multiplier > 1 && this.alphaData.length > 0 && this.preserveAlpha) {
+        else if (this.multiplier > 1 && this.alphaData.length > 0 && this.preserveAlpha) {
             this.prevData.resized = resizeRGBACanvas(this.prevData.data, this.prevData.w, this.prevData.h, this.multiplier);
-            this.replaceAlpha();
+            this.#replaceAlpha();
         }
-        if (this.dumpOriginalImageData){
+
+        if (this.dumpOriginalImageData) {
             this.prevData.data = null;
             this.prevData.resized = null;
         }
+        
         this.#locked = true;
     }
 
-    insertVertical(imageData) {
-        const arrays = [this.imageData.data, imageData.data];
-        const totalLength = arrays.reduce((acc, array) => acc + array.length, 0);
-        let result = new Uint8Array(totalLength);
-        let offset = 0;
-
-        arrays.forEach(array => {
-            result.set(array, offset);
-            offset += array.length;
-        });
-
-        arrays.length = 0
-        this.imageData.width = imageData.width;
-        this.imageData.height += imageData.height;
-        this.imageData.data = result;
+    _insertVertical(newData) {
+        mergeVertical(newData, this.imageData);
     };
 
+    _insertTile(newData) {
+        insertNewTile(newData, this.imageData, pos);
+    } 
+
+    // Merge result pixel data. Called after inference on one chunk
     insertImageChunk(data) {
         this[this._insert](data); // insertVertical() or insertTile()
     };
 
-    replaceAlpha() {
+    insertTensorChunk(newTensor, newWidth, newHeight, model){
+        if (this._insert == "insertVertical"){
+            this.tensor = mergeTensorsVertical[model.layout](this.tensor, newTensor, this.imageData.height, newHeight, this.imageData.width, model.channel, model.dataType);
+        } 
+    }
+
+    #replaceAlpha() {
         for (let i = 0; i < this.imageData.data.length; i += 4) {
             this.imageData.data[i] = this.prevData.resized[i];
         }
@@ -152,7 +147,7 @@ export class Model {
     channel;
     dataType;
     layout;
-    tileSize;
+    tileSize = null;
 
     validate() {
         const emptyprop = [];

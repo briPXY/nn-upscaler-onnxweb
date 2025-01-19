@@ -1,7 +1,7 @@
 # Web Neural Inference for Image Processing Models (ONNX)
 
 Easy interface for running onnx models inference on the web browser, for image processing models. Using ONNX web runtime API.
-Features: Inference on each sliced images for AI models which input tensor's dimension is non-determined, to prevent page crash from large input/model (browser's memory limit policy). Preserve transparency for rgba input.
+Features: Inference on each sliced images for AI models which input tensor's dimension is non-determined, to prevent page crash from large input/model (browser's memory limit policy).
 
 ## Usage
 
@@ -71,8 +71,8 @@ const imageData16 = await wnx.Image.tensorToRGB16_NCHW(output.tensor)
 ```
 
 ## Known Issues
-- Significant pixelated artifacts at the edge of opaque shapes in transparent image after upscaling.
-- High memory usage on the page after an inference.
+- Significant pixels artifacts at the edge of opaque shapes in transparent image after upscaling.
+- Unmanaged webpage's memory usage (likely heaps from onnx-runtime) after an inference, maybe equally high as youtube page but expected to be more lightweight.
 
 ## Included Models
 

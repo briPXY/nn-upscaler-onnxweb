@@ -93,8 +93,9 @@ function _validateParam(model, output) {
     model.validate();
 }
 
-// Populates d_in (input data) with chunks of tensor.
-async function _prepareInput(model, input, output, width, height) {
+// Populates d_in with chunks of sliced pixels.
+// Assign pre-result OutputData's with required data for post-result operation.
+async function _prepareInputOutput(model, input, output, width, height) {
     let result;
 
     if (input instanceof File) {
@@ -114,7 +115,13 @@ async function _prepareInput(model, input, output, width, height) {
     handlers.chunkProcess.total = result.totalChunks;
     output.alphaData = result.alphaData;
     output.prevData = result.prevData;
-    output.insert = result.insert;
+    output._insert = result.insert;
+    
+    if (model.tileSize){
+        output._tileDim = result.tileDim;
+        output._prePadding = result.prePadding;
+    }
+
     return;
 }
 
@@ -148,9 +155,9 @@ async function _sessionRunner(ModelInfo, output) {
 
     let outputTensor = result[outputName];
     const imageData = outputTensor.toImageData();
-    const tensorBuffer = await outputTensor.getData()
-    output.tensor ? output.tensor = Image.mergeTensors[ModelInfo.layout](output.tensor, tensorBuffer, output.imageData.height, imageData.height, imageData.width, ModelInfo.channel, ModelInfo.dataType) : null;
-
+    const tensorBuffer = await outputTensor.getData();
+    
+    output.insertTensor(tensorBuffer, null, imageData.height, ModelInfo)
     output.insertImageChunk(imageData);
 
     inputTensor.dispose();
@@ -161,9 +168,8 @@ async function _sessionRunner(ModelInfo, output) {
         await _sessionRunner(ModelInfo, output);
     }
 
-    output.dims = Dims(ModelInfo.layout, { W: output.imageData.width, H: output.imageData.height, C: ModelInfo.channel, N: 1 });
-    output.multiplier = output.imageData.width / input.w;
-    output._finish = true;
+    output.dims = Dims(ModelInfo.layout, { W: output.imageData.width, H: output.imageData.height, C: ModelInfo.channel, N: 1 }); 
+    output.finish(true);
 
     return;
 }
@@ -196,13 +202,12 @@ async function _sessionRunner_thread(ModelInfo, output) {
             if (event.data.tensor) {
                 d_in.shift();
                 const imageData = event.data.image;
-                output.tensor ? output.tensor = Image.mergeTensors[ModelInfo.layout](output.tensor, event.data.tensor, output.imageData.height, imageData.height, imageData.width, ModelInfo.channel, ModelInfo.dataType) : null;
-                output.insertImageChunk(imageData);
+                output.insertTensor(event.data.tensor, null, imageData.height, ModelInfo);
+                output.insertImageChunk(imageData)
 
                 if (d_in.length === 0) {
-                    output.multiplier = imageData.width / output.prevData.w;
                     output.dims = Dims(ModelInfo.layout, { W: output.imageData.width, H: output.imageData.height, C: ModelInfo.channel, N: 1 });
-                    output._finish = true;
+                    output.finish(true);
                     webGPUWorker.postMessage('cleanup');
                     webGPUWorker.terminate();
                     resolve('done');
@@ -243,7 +248,7 @@ export async function inferenceRun(model, input, output, inputWidth, inputHeight
         const runtimeIsGPU = InferenceOpt.executionProviders[0] == 'webgpu' && !!navigator.gpu;
 
         _validateParam(model, output);
-        await _prepareInput(model, input, output, inputWidth, inputHeight);
+        await _prepareInputOutput(model, input, output, inputWidth, inputHeight);
         output.tensor = TypedArray[model.dataType](0);
 
         if (runtimeIsGPU) {

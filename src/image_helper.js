@@ -31,7 +31,7 @@ export async function prepareInputFromFile(nativeFIle, model, blob) {
 
 				result.pixelChunks.forEach(e => d_in.push(e));
 				result.pixelChunks.length = 0;
-				resolve({ totalChunks: d_in.length, alphaData: result.alphaData, prevData: result.prevData, insert: result.insert });
+				resolve({ totalChunks: d_in.length, alphaData: result.alphaData, prevData: result.prevData, insert: result.insert, tileDim: result.tileDim, prePadding: result.prePadding });
 			};
 			img.onerror = (error) => {
 				console.error("error reading file");
@@ -55,7 +55,7 @@ export async function prepareInputFromPixels(img = new Uint8Array(0), width = 0,
 
 	result.pixelChunks.forEach(e => d_in.push(e));
 	result.pixelChunks.length = 0;
-	return { totalChunks: d_in.length, alphaData: result.alphaData, prevData: result.prevData, insert: result.insert};
+	return { totalChunks: d_in.length, alphaData: result.alphaData, prevData: result.prevData, insert: result.insert, tileDim: result.tileDim, prePadding: result.prePadding };
 }
 
 export function prepareInputFromTensor(input, width, height, model) {
@@ -93,10 +93,13 @@ export function concatUint8Arrays(...arrays) {
 }
 
 /** 
- * Merge two Float32Array NCHW tensors of varying heights into one along the height dimension. 
- * @returns {Float32Array} Merged tensor.
+ * Merge two typed-array NCHW puput tensors of varying heights into one along the height dimension. 
+ * @param {TypedArray} tensor1 - Target tensor
+ * @param {TypedArray} tensor2 - New tensor to be merged
+ * @param {number} height1 - Target height
+ * @param {number} height2 - New height
+ * @returns {TypedArray} Merged tensor
  */
-
 function mergeNCHW(tensor1, tensor2, height1, height2, width, channel = 3, type = 'float32') {
 	// Calculate the merged height
 	const mergedHeight = height1 + height2;
@@ -121,7 +124,7 @@ function mergeNCHW(tensor1, tensor2, height1, height2, width, channel = 3, type 
 	return mergedTensor;
 }
 
-export const mergeTensors = {
+export const mergeTensorsVertical = {
 	NCHW: mergeNCHW,
 };
 
@@ -185,33 +188,54 @@ export function stashAlpha(source, dest) {
 	}
 }
 
-// Resize original for the source of AI upscaled alpha channel
-export function resizeRGBACanvas(rgbaData, width, height, multiplier) { 
-    const sourceCanvas = document.createElement('canvas');
-    const sourceCtx = sourceCanvas.getContext('2d');
-    sourceCanvas.width = width;
-    sourceCanvas.height = height;
- 
-    const imageData = new ImageData(new Uint8ClampedArray(rgbaData), width, height);
-    sourceCtx.putImageData(imageData, 0, 0);
- 
-    const targetCanvas = document.createElement('canvas');
-    const targetCtx = targetCanvas.getContext('2d');
-    targetCanvas.width = Math.round(width * multiplier);
-    targetCanvas.height = Math.round(height * multiplier);
+export function mergeVertical(newData, imageData) {
+	const arrays = [imageData.data, newData.data];
+	const totalLength = arrays.reduce((acc, array) => acc + array.length, 0);
+	let result = new Uint8Array(totalLength);
+	let offset = 0;
 
-    // Set image smoothing properties for better alpha quality
-    targetCtx.imageSmoothingEnabled = true;
-    targetCtx.imageSmoothingQuality = 'high';
- 
-    targetCtx.drawImage(sourceCanvas, 0, 0, targetCanvas.width, targetCanvas.height);
- 
-    const resizedData = targetCtx.getImageData(0, 0, targetCanvas.width, targetCanvas.height);
-    
-    // Convert Uint8ClampedArray to Uint8Array
-    return new Uint8Array(resizedData.data);
+	arrays.forEach(array => {
+		result.set(array, offset);
+		offset += array.length;
+	});
+
+	arrays.length = 0
+	imageData.width = newData.width;
+	imageData.height += newData.height;
+	imageData.data = result;
 }
- 
+
+export function insertNewTile(){
+
+}
+
+// Resize original for the source of AI upscaled alpha channel
+export function resizeRGBACanvas(rgbaData, width, height, multiplier) {
+	const sourceCanvas = document.createElement('canvas');
+	const sourceCtx = sourceCanvas.getContext('2d');
+	sourceCanvas.width = width;
+	sourceCanvas.height = height;
+
+	const imageData = new ImageData(new Uint8ClampedArray(rgbaData), width, height);
+	sourceCtx.putImageData(imageData, 0, 0);
+
+	const targetCanvas = document.createElement('canvas');
+	const targetCtx = targetCanvas.getContext('2d');
+	targetCanvas.width = Math.round(width * multiplier);
+	targetCanvas.height = Math.round(height * multiplier);
+
+	// Set image smoothing properties for better alpha quality
+	targetCtx.imageSmoothingEnabled = true;
+	targetCtx.imageSmoothingQuality = 'high';
+
+	targetCtx.drawImage(sourceCanvas, 0, 0, targetCanvas.width, targetCanvas.height);
+
+	const resizedData = targetCtx.getImageData(0, 0, targetCanvas.width, targetCanvas.height);
+
+	// Convert Uint8ClampedArray to Uint8Array
+	return new Uint8Array(resizedData.data);
+}
+
 export async function encodeRGBA(pixels = new Uint8ClampedArray(0), w, h, quality = 100, format = 'jpeg') {
 	const blob = await imgHelperThreadRun({
 		pixels: pixels,

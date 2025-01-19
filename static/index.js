@@ -38,13 +38,15 @@ sectionStates({ dropZone: 'flex', compPanel: 'none', convert: 'none', loading: '
 async function setModelList() {
     Models = await wnx.meta.requestModelsCollections('/get-models-info');
     delete Models['readme.md'];
+    delete Models['.gitignore'];
     for (const name in Models) {
-        if (!/\.gitignore/i.test(name)) {
-            const opt = document.createElement('option');
-            opt.textContent = name;
-            opt.value = name;
-            optionSelect[0].appendChild(opt);
-        }
+        const opt = document.createElement('option');
+        opt.textContent = name;
+        opt.value = name;
+        optionSelect[0].appendChild(opt);
+    }
+    if (Models['Real-ESRGAN-General-x4v3']){
+        Models['Real-ESRGAN-General-x4v3'].tileSize = 128;
     }
 }
 
@@ -228,7 +230,7 @@ pv.startBtn.addEventListener('click', async function () {
         wnx.setInferenceOption(inferenceOptions);
 
         const upscaleModel = new wnx.Model(Models[optionSelect[0].value]);
-        Output = new wnx.OutputData({ includeTensor: false, dumpOriginalImageData: true});
+        Output = new wnx.OutputData({ includeTensor: false, dumpOriginalImageData: true });
         await wnx.inferenceRun(upscaleModel, fInput.files[0], Output);
 
         console.log('Inference finished', Output.imageData.data.length, '- Time to finish:', Output.time);

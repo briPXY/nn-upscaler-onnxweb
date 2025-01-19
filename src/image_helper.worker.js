@@ -177,7 +177,7 @@ function makeDims(layout, { W = 0, H = 0, C = 3, N = 1 }) {
 
 function retainAlpha(pixels, input_channels, model_channels) {
 	let retainedAlpha = [], i = 0;
-	if (input_channels == 4 && model_channels == 3) { 
+	if (input_channels == 4 && model_channels == 3) {
 		for (i; i < pixels.length; i += 4) {
 			retainedAlpha.push(pixels[i]);
 		}
@@ -264,7 +264,7 @@ async function fileFromOffscreenCanvas(offscreenCanvas, rgb, quality, format) {
 	const offscreenContext = offscreenCanvas.getContext('2d');
 
 	drawRectangleWithColor(offscreenCanvas, rgb);
-	rgb = null; 
+	rgb = null;
 	const imageData = offscreenContext.getImageData(0, 0, offscreenCanvas.width, offscreenCanvas.height);
 	const tempCanvas = new OffscreenCanvas(offscreenCanvas.width, offscreenCanvas.height);
 	const tempContext = tempCanvas.getContext('2d');
@@ -306,11 +306,10 @@ async function createBlobFromRgbData(pixelData, width, height, compressionQualit
 //#region slicers
 
 function paddedImageData(originalData, originalWidth, originalHeight, newWidth, newHeight) {
-	const bytesPerPixel = 3; // Since we're working with RGB data 
+	const bytesPerPixel = 3;
 	const newSize = newWidth * newHeight * bytesPerPixel;
-
-	// Create a new Uint8Array for the padded image data
-	const paddedData = new Uint8Array(newSize);
+ 
+	const paddedData = new Uint8Array(newSize).fill(0);
 
 	// Fill the new array with the original image data
 	for (let y = 0; y < originalHeight; y++) {
@@ -322,8 +321,7 @@ function paddedImageData(originalData, originalWidth, originalHeight, newWidth, 
 			}
 		}
 	}
-
-	// The remaining pixels in `paddedData` will be the padding (initialized to 0)
+ 
 	return paddedData;
 }
 
@@ -333,12 +331,11 @@ function pixelSlicerSquare(pixels, width, height, model) {
 	const channels = input.length == (width * height * 3) ? 3 : 4;
 	const retainedAlpha = retainAlpha(pixels, channels, model.channel);
 
-	const newDimension = calculatePaddedDimensions(width, height, tileSize);
-	const newData = paddedImageData(pixels, width, height, newDimension.width, newDimension.height);
+	const newDim = calculatePaddedDimensions(width, height, tileSize);
+	const newData = paddedImageData(pixels, width, height, newDim.width, newDim.height);
 
-	const tileX = newDimension.width / tileSize;
-	const tileY = newDimension.height / tileSize;
-	const totalTiles = tileX * tileY;
+	const tileX = newDim.width / tileSize;
+	const tileY = newDim.height / tileSize;
 	const pixelChunks = [];
 
 	for (let y = 0; y < tileY; y++) {
@@ -357,9 +354,25 @@ function pixelSlicerSquare(pixels, width, height, model) {
 				}
 			}
 
-			pixelChunks.push(new ChunkData({ data: tileData, h: tileSize, w: tileSize, model: model }));
+			pixelChunks.push(new ChunkData({
+				data: tileData,
+				h: tileSize,
+				w: tileSize,
+				model: model, 
+			}));
 		}
 	}
+
+	self.postMessage({
+		pixelChunks: pixelChunks,
+		insert: "insertTiles",
+		alphaData: retainedAlpha,
+		prevData: { data: newData, w: newDim.width, h: newDim.height, channels: channels },
+		tileDim: { x: tileX, y: tileY, size: model.tileSize},
+		prePadding: {w: width, h: height},
+	});
+	pixelChunks = null;
+	return;
 
 }
 
@@ -369,7 +382,7 @@ function pixelsSlicerVertical(pixels, chunkSize, width, height, model) {
 
 	const channels = pixels.length / (width * height);
 	const retainedAlpha = retainAlpha(pixels, channels, model.channel);
- 
+
 	if (width * height <= chunkSize) {
 		return [new ChunkData({ data: pixels, h: height, w: width })];
 	}
@@ -388,7 +401,14 @@ function pixelsSlicerVertical(pixels, chunkSize, width, height, model) {
 		i += sliceSize;
 	}
 
-	self.postMessage({ pixelChunks: pixelChunks, insert: "insertVertical", alphaData: retainedAlpha, prevData: { data: pixels, w: width, h: originalHeight, channels: channels } });
+	self.postMessage({ 
+		pixelChunks: pixelChunks, 
+		insert: "insertVertical", 
+		alphaData: retainedAlpha, 
+		prevData: { data: pixels, w: width, h: originalHeight, channels: channels },
+		prePadding: null,
+		tileDim: null,
+	});
 	pixelChunks = null;
 	return;
 }
@@ -408,7 +428,7 @@ self.onmessage = async function (event) {
 	// Create sliced image from image File.
 	if (event.data.context == "decode-transpose") { // Input is native image File object.
 		loadImage(input, data.w, data.h)
-			.then((pixels) => { 
+			.then((pixels) => {
 				data.model.tileSize ? pixelSlicerSquare(pixels, data.w, data.h, data.model) : pixelsSlicerVertical(pixels, data.chunkSize, data.w, data.h, data.model);
 			})
 			.catch((error) => {
