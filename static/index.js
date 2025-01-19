@@ -228,7 +228,7 @@ pv.startBtn.addEventListener('click', async function () {
         wnx.setInferenceOption(inferenceOptions);
 
         const upscaleModel = new wnx.Model(Models[optionSelect[0].value]);
-        Output = new wnx.OutputData({ includeTensor: false });
+        Output = new wnx.OutputData({ includeTensor: false, dumpOriginalImageData: true});
         await wnx.inferenceRun(upscaleModel, fInput.files[0], Output);
 
         console.log('Inference finished', Output.imageData.data.length, '- Time to finish:', Output.time);

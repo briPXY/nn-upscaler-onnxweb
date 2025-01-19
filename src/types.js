@@ -1,24 +1,42 @@
-import { resizeAlphaData } from "./image_helper";
+import { resizeRGBACanvas } from "./image_helper";
 
 export class OutputData {
-    constructor({ includeTensor = true, preserveAlpha = true } = {}) {
-        this.includeTensor = includeTensor;
-        this.preserveAlpha = preserveAlpha; // Only if model require 3 channels and input has 4.
-    }
-
     includeTensor = true;
     preserveAlpha = true;
+    dumpOriginalImageData = false;
+
     #locked = false;
+    _havePadding = false;
+    _insert = "insertVertical";
 
     tensorChunks;
     multiplier;
+
     imageData = {
         data: new Uint8Array(),
         width: 0,
         height: 0,
     };
+
     alphaData = [];
-    prevData = {};
+
+    prevData = {
+        data: null,
+        resized: null,
+    };
+
+    constructor({ includeTensor = true, preserveAlpha = true, dumpOriginalImageData = false } = {}) {
+        this.includeTensor = includeTensor;
+        this.preserveAlpha = preserveAlpha; // Only if model require 3 channels and input has 4.
+        this.dumpOriginalImageData = dumpOriginalImageData;
+    }
+
+    /**
+     * @param {string} v
+     */
+    set insert(v) {
+        this._insert = v;
+    }
 
     get tensor() {
         return this._tensor;
@@ -43,17 +61,42 @@ export class OutputData {
             this.replaceAlpha();
         }
         if (this.multiplier > 1 && this.alphaData.length > 0 && this.preserveAlpha) {
-            this.alphaData = resizeAlphaData(this.alphaData, this.prevData.w, this.prevData.h, this.multiplier);
+            this.prevData.resized = resizeRGBACanvas(this.prevData.data, this.prevData.w, this.prevData.h, this.multiplier);
             this.replaceAlpha();
+        }
+        if (this.dumpOriginalImageData){
+            this.prevData.data = null;
+            this.prevData.resized = null;
         }
         this.#locked = true;
     }
 
+    insertVertical(imageData) {
+        const arrays = [this.imageData.data, imageData.data];
+        const totalLength = arrays.reduce((acc, array) => acc + array.length, 0);
+        let result = new Uint8Array(totalLength);
+        let offset = 0;
+
+        arrays.forEach(array => {
+            result.set(array, offset);
+            offset += array.length;
+        });
+
+        arrays.length = 0
+        this.imageData.width = imageData.width;
+        this.imageData.height += imageData.height;
+        this.imageData.data = result;
+    };
+
+    insertImageChunk(data) {
+        this[this._insert](data); // insertVertical() or insertTile()
+    };
+
     replaceAlpha() {
-        for (let i = 0, j = 3; i < this.alphaData.length; i++, j+=4) {
-            this.imageData.data[j] = this.alphaData[i];      
-        } 
-    }
+        for (let i = 0; i < this.imageData.data.length; i += 4) {
+            this.imageData.data[i] = this.prevData.resized[i];
+        }
+    };
 
 }
 
@@ -109,11 +152,12 @@ export class Model {
     channel;
     dataType;
     layout;
+    tileSize;
 
     validate() {
         const emptyprop = [];
         for (const key in this) {
-            if (!this[key]) {
+            if (!this[key] && key != "tileSize") {
                 emptyprop.push(key);
             }
         }

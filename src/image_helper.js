@@ -26,14 +26,12 @@ export async function prepareInputFromFile(nativeFIle, model, blob) {
 					w: img.width,
 					h: img.height,
 					chunkSize: cfg.avgChunkSize,
-					layout: model.layout,
-					dataType: model.dataType,
-					modelChannels: model.channel,
+					model: model,
 				}, 'decode-transpose');
 
-				result.tensorChunks.forEach(e => d_in.push(e));
-				result.tensorChunks.length = 0;
-				resolve({ totalChunks: d_in.length, alphaData: result.alphaData, prevData: result.prevData });
+				result.pixelChunks.forEach(e => d_in.push(e));
+				result.pixelChunks.length = 0;
+				resolve({ totalChunks: d_in.length, alphaData: result.alphaData, prevData: result.prevData, insert: result.insert });
 			};
 			img.onerror = (error) => {
 				console.error("error reading file");
@@ -51,15 +49,13 @@ export async function prepareInputFromPixels(img = new Uint8Array(0), width = 0,
 		img: img,
 		w: width,
 		h: height,
-		layout: model.layout,
-		dataType: model.dataType,
-		modelChannels: model.channel,
+		model: model,
 		chunkSize: cfg.avgChunkSize,
 	}, 'transpose-pixels');
 
-	result.forEach(e => d_in.push(e));
-	result.length = 0;
-	return d_in.length;
+	result.pixelChunks.forEach(e => d_in.push(e));
+	result.pixelChunks.length = 0;
+	return { totalChunks: d_in.length, alphaData: result.alphaData, prevData: result.prevData, insert: result.insert};
 }
 
 export function prepareInputFromTensor(input, width, height, model) {
@@ -72,9 +68,9 @@ export function prepareInputFromTensor(input, width, height, model) {
 
 // set thumbnail for left image (preview)
 export function imgUrlFromFile(file) {
-	return new Promise((resolve, reject) => {
+	return new Promise((resolve) => {
 		const reader = new FileReader();
-		reader.onload = async function (e) {
+		reader.onload = async function () {
 			const blob = new Blob([reader.result], { type: file.type });
 			const objectURL = URL.createObjectURL(blob);
 			resolve(objectURL);
@@ -127,7 +123,7 @@ function mergeNCHW(tensor1, tensor2, height1, height2, width, channel = 3, type 
 
 export const mergeTensors = {
 	NCHW: mergeNCHW,
-}
+};
 
 
 /**
@@ -189,51 +185,36 @@ export function stashAlpha(source, dest) {
 	}
 }
 
-export function resizeAlphaData(alphaData, originalWidth, originalHeight, multiplier) {
-	const newWidth = Math.round(originalWidth * multiplier);
-	const newHeight = Math.round(originalHeight * multiplier);
-	const resizedAlphaData = new Array(newWidth * newHeight);
+// Resize original for the source of AI upscaled alpha channel
+export function resizeRGBACanvas(rgbaData, width, height, multiplier) { 
+    const sourceCanvas = document.createElement('canvas');
+    const sourceCtx = sourceCanvas.getContext('2d');
+    sourceCanvas.width = width;
+    sourceCanvas.height = height;
+ 
+    const imageData = new ImageData(new Uint8ClampedArray(rgbaData), width, height);
+    sourceCtx.putImageData(imageData, 0, 0);
+ 
+    const targetCanvas = document.createElement('canvas');
+    const targetCtx = targetCanvas.getContext('2d');
+    targetCanvas.width = Math.round(width * multiplier);
+    targetCanvas.height = Math.round(height * multiplier);
 
-	const xRatio = originalWidth / newWidth;
-	const yRatio = originalHeight / newHeight;
-
-	for (let newY = 0; newY < newHeight; newY++) {
-		for (let newX = 0; newX < newWidth; newX++) {
-			// Calculate the position in the original array
-			const origX = newX * xRatio;
-			const origY = newY * yRatio;
-
-			// Get the four surrounding pixels
-			const x1 = Math.floor(origX);
-			const y1 = Math.floor(origY);
-			const x2 = Math.min(x1 + 1, originalWidth - 1);
-			const y2 = Math.min(y1 + 1, originalHeight - 1);
-
-			const xWeight = origX - x1;
-			const yWeight = origY - y1;
-
-			const topLeft = alphaData[y1 * originalWidth + x1];
-			const topRight = alphaData[y1 * originalWidth + x2];
-			const bottomLeft = alphaData[y2 * originalWidth + x1];
-			const bottomRight = alphaData[y2 * originalWidth + x2];
-
-			// Bilinear interpolation
-			const top = topLeft * (1 - xWeight) + topRight * xWeight;
-			const bottom = bottomLeft * (1 - xWeight) + bottomRight * xWeight;
-			const value = top * (1 - yWeight) + bottom * yWeight;
-
-			// Assign the calculated value to the resized array
-			resizedAlphaData[newY * newWidth + newX] = Math.round(value);
-		}
-	}
-
-	return resizedAlphaData;
+    // Set image smoothing properties for better alpha quality
+    targetCtx.imageSmoothingEnabled = true;
+    targetCtx.imageSmoothingQuality = 'high';
+ 
+    targetCtx.drawImage(sourceCanvas, 0, 0, targetCanvas.width, targetCanvas.height);
+ 
+    const resizedData = targetCtx.getImageData(0, 0, targetCanvas.width, targetCanvas.height);
+    
+    // Convert Uint8ClampedArray to Uint8Array
+    return new Uint8Array(resizedData.data);
 }
-
-// Encode to image format with Canvas API
+ 
 export async function encodeRGBA(pixels = new Uint8ClampedArray(0), w, h, quality = 100, format = 'jpeg') {
 	const blob = await imgHelperThreadRun({
-		data: pixels,
+		pixels: pixels,
 		w: w,
 		h: h,
 		q: quality,
@@ -249,7 +230,7 @@ export async function tensorToRGB16_NCHW(tensor, dims) {
 }
 
 async function imgHelperThreadRun(input = {}, context) { // resize version 
-	return new Promise(async (resolve, reject) => {
+	return new Promise((resolve, reject) => {
 		try {
 			workerProcess = new Worker(workerURL);
 			workerProcess.onmessage = (event) => {

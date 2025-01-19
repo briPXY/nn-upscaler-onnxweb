@@ -1,7 +1,7 @@
 # Web Neural Inference for Image Processing Models (ONNX)
 
-Easy interface for inference ONNX models on the web browser, for image processing models. Utilizes ONNX web runtime.
-Features: Inference on each sliced images for AI models which input tensor's dimension values is non-determined, to prevent page crash from large input/model (browser's memory limit policy). Preserve transparency for rgba input.
+Easy interface for running onnx models inference on the web browser, for image processing models. Using ONNX web runtime API.
+Features: Inference on each sliced images for AI models which input tensor's dimension is non-determined, to prevent page crash from large input/model (browser's memory limit policy). Preserve transparency for rgba input.
 
 ## Usage
 
@@ -10,10 +10,10 @@ Features: Inference on each sliced images for AI models which input tensor's dim
 # install dependecies
 npm install
 
-# build bundle.min.js and copied backends
-npx webpack 
+# build bundle.min.js (production mode) and copy the backends from node_module
+npx webpack
 
-# run the demo server, open http://127.0.0.1 (use mainstream browsers for webgpu support)
+# run the fastify server for demo at http://127.0.0.1 (use mainstream browsers for webgpu support)
 npm start
 ``` 
 _Select an image -> select models / runtime -> upscale_
@@ -70,7 +70,12 @@ Convert output tensor (nchw) to image data (rgb), return an Uint16Array.
 const imageData16 = await wnx.Image.tensorToRGB16_NCHW(output.tensor)
 ```
 
+## Known Issues
+- Significant pixelated artifacts at the edge of opaque shapes in transparent image after upscaling.
+- High memory usage on the page after an inference.
+
 ## Included Models
+
 | Architecture| Model| Scale | Tensor   | Layout  | Original Format |
 | ----------- | ---------------------- | ----- | -------- | ------- | --------------- |
 | SPAN        | [ClearRealityV1](https://openmodeldb.info/models/4x-ClearRealityV1)| 4     | float32  | NCHW    | .onnx  |

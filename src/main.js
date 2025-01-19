@@ -4,7 +4,7 @@ import { cfg, backendPath, _env } from './cfg';
 import { OutputData, Dims, ChunkLevel, Model, TypedArray } from './types';
 
 // worker raw
-import sessionRawWorker from './webgpu_session.worker';
+import sessionRawWorker from './session.worker';
 
 export const InferenceOpt = {
     executionProviders: meta.providers,
@@ -83,11 +83,11 @@ const _setWebGpuExecProvider = (layout) => {
 
 function _validateParam(model, output) {
     if (!model instanceof Model) {
-        throw '1st param must be an instance of NNU.Model';
+        throw '1st param must be an instance of wnx.Model';
     }
 
     if (!output instanceof OutputData) {
-        throw '3rd param must be an instance of NNU.OutputData';
+        throw '3rd param must be an instance of wnx.OutputData';
     }
 
     model.validate();
@@ -95,58 +95,35 @@ function _validateParam(model, output) {
 
 // Populates d_in (input data) with chunks of tensor.
 async function _prepareInput(model, input, output, width, height) {
+    let result;
 
     if (input instanceof File) {
-        const result = await Image.prepareInputFromFile(input, model);
-        handlers.chunkProcess.total = result.totalChunks;
-        output.alphaData = result.alphaData;
-        output.prevData = result.prevData;
-        return;
+        result = await Image.prepareInputFromFile(input, model); 
     }
 
-    else if (input instanceof Uint8Array && width && height) {
+    else if (input instanceof Uint8Array || input instanceof Uint8ClampedArray) {
         if (!width || !height) {
-            throw 'Width amd height are required for TypedArray input (Uint8Array).'
+            throw 'Invalid input params -- width and height are required for TypedArray input (Uint8Array).'
         }
-
-        output.prevData = { w: width, h: height, channel: 3 }
-
-        if (model.channel == 3 && input.length == (4 * width * height)) {
-            output.prevData.channel = 4;
-            Image.stashAlpha(input, output.alphaData);
-        }
-
-        handlers.chunkProcess.total = await Image.prepareInputFromPixels(input, width, height, model);
-        return;
+        result = await Image.prepareInputFromPixels(input, width, height, model);
     }
-
-    else if (input.tensor) {
-        if (input.dataType && input.layout && input.channels) {
-            const typeMatch = input.dataType == model.dataType;
-            const layoutMatch = input.layout == model.layout;
-            const channelMatch = input.channels == model.channel;
-
-            if (typeMatch && layoutMatch && channelMatch) {
-                Image.prepareInputFromTensor(input, width, height, model);
-                return;
-            }
-            else {
-                throw `Tensor formats does not match with model. \n Model: type-${model.dataType}, layout-${model.layout}, channel-${model.channel} \n Input: type-${input.dataType}, layout-${input.layout}, channel-${input.channels}`;
-            }
-        }
-        else {
-            throw 'Invalid input object props for tensor input';
-        }
+    else {
+        throw "Input error -- input type is not supported";
     }
-    throw 'Invalid input params';
+ 
+    handlers.chunkProcess.total = result.totalChunks;
+    output.alphaData = result.alphaData;
+    output.prevData = result.prevData;
+    output.insert = result.insert;
+    return;
 }
 
-async function _createTensor(input, model){
-    const bitmap = await Image.createImageBitmapFromRGB(input.w, input.h, new Uint8Array(input.data));
-    const tensor = await ort.Tensor.fromImage(bitmap, { 
-        dataType: model.dataType, 
-        tensorLayout: model.layout.toUpperCase(), 
-        tensorFormat: model.channel == 3? 'RGB' : 'RGBA',
+async function _createTensor(input, model) {
+    let bitmap = await Image.createImageBitmapFromRGB(input.w, input.h, new Uint8Array(input.data));
+    const tensor = await ort.Tensor.fromImage(bitmap, {
+        dataType: model.dataType,
+        tensorLayout: model.layout.toUpperCase(),
+        tensorFormat: model.channel == 3 ? 'RGB' : 'RGBA',
     });
     bitmap = null;
     input = null;
@@ -157,8 +134,7 @@ async function _createTensor(input, model){
 async function _sessionRunner(ModelInfo, output) {
     const input = d_in.shift();
 
-    const inputTensor = await _createTensor(input, ModelInfo);
-    // const inputTensor = new ort.Tensor(ModelInfo.dataType, tensor, input.dims);
+    const inputTensor = await _createTensor(input, ModelInfo); 
 
     const session = await ort.InferenceSession.create(ModelInfo.url, InferenceOpt);
     const inputName = session.inputNames[0];
@@ -166,10 +142,7 @@ async function _sessionRunner(ModelInfo, output) {
 
     // prepare feeds. use model input tensor names as keys ()
     const feeds = { [inputName]: inputTensor };
-
-    // Feed input and run 
-
-    //console.log('process chunk no:', d_in.length, input.dims, 'height:', input.h);
+  
     const result = await session.run(feeds);
     handlers.chunkProcess.doneEvent();
 
@@ -178,9 +151,7 @@ async function _sessionRunner(ModelInfo, output) {
     const tensorBuffer = await outputTensor.getData()
     output.tensor ? output.tensor = Image.mergeTensors[ModelInfo.layout](output.tensor, tensorBuffer, output.imageData.height, imageData.height, imageData.width, ModelInfo.channel, ModelInfo.dataType) : null;
 
-    output.imageData.data = Image.concatUint8Arrays(output.imageData.data, imageData.data);
-    output.imageData.width = imageData.width;
-    output.imageData.height += imageData.height;
+    output.insertImageChunk(imageData);
 
     inputTensor.dispose();
     outputTensor.dispose();
@@ -226,9 +197,7 @@ async function _sessionRunner_thread(ModelInfo, output) {
                 d_in.shift();
                 const imageData = event.data.image;
                 output.tensor ? output.tensor = Image.mergeTensors[ModelInfo.layout](output.tensor, event.data.tensor, output.imageData.height, imageData.height, imageData.width, ModelInfo.channel, ModelInfo.dataType) : null;
-                output.imageData.data = Image.concatUint8Arrays(output.imageData.data, imageData.data);
-                output.imageData.width = imageData.width;
-                output.imageData.height += imageData.height;
+                output.insertImageChunk(imageData);
 
                 if (d_in.length === 0) {
                     output.multiplier = imageData.width / output.prevData.w;

@@ -38,15 +38,13 @@ self.addEventListener('message', async (event) => {
             const tensorBuffer = await outputTensor.getData();
             const imageData = outputTensor.toImageData();
             self.postMessage({ image: imageData, tensor: tensorBuffer, dims: outputTensor.dims });
-            return
+            return;
         }
 
         event.data.InferenceOpt ? InferenceOpt = event.data.InferenceOpt : InferenceOpt;
         event.data.ModelInfo ? ModelInfo = event.data.ModelInfo : ModelInfo;
         event.data.env ? env = event.data.env : env;
-        event.data.cfg ? cfg = event.data.cfg : cfg;
-
-        const array32 = new Float32Array(event.data.inputArray);
+        event.data.cfg ? cfg = event.data.cfg : cfg; 
 
         // Import backend provider script  
         if (typeof ort == 'undefined') {
@@ -76,7 +74,7 @@ self.addEventListener('message', async (event) => {
         console.error(e);
         throw e;
     }
-})
+});
 
 self.onerror = (message, source, lineno, colno, error) => {
     console.error("Worker Error:", { message, source, lineno, colno, error });
@@ -86,6 +84,6 @@ self.onerror = (message, source, lineno, colno, error) => {
 self.onunhandledrejection = (event) => {
     if (event.reason && event.reason.message.includes("GPUBuffer")) {
         console.error("WebGPU Error in Worker");
-        self.postMessage({ gpuError: event.reason.message })
+        self.postMessage({ gpuError: event.reason.message });
     }
 };

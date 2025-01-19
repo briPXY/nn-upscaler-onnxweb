@@ -1,17 +1,34 @@
+class ChunkData {
+	constructor({ data, w, h, model } = {}) {
+		this.data = data;
+		this.w = w;
+		this.h = h;
+		makeDims(model.layout.toUpperCase(), w, h, model.channel);
+	}
 
-var width = 0;
-var height = 0;
-var stripAlpha = false;
-var tensorLayout = 'NCHW';
-var dataType = 'float32';
+	data;
+	w;
+	h;
+	dims;
+
+	makeDims(layout, W, H, C) {
+		layout = layout.toUpperCase();
+		this.dims = [0, 0, 0, 0];
+		dims[layout.indexOf("N")] = 1;
+		dims[layout.indexOf("C")] = C;
+		dims[layout.indexOf("H")] = H;
+		dims[layout.indexOf("W")] = W;
+	}
+}
+
 //#region data conversion
 
 /* Leverage ort Tensor constructor
 // Make pixel array into tensor layout, output is still in 8bit. Channels is input channel (not model).
-function transposeToTensor(data, channels = 3, modelChannels) {
-	const modelAllowAlpha = modelChannels == 4;
+function transposeToTensor(data, channels = 3, model) {
+	const modelAllowAlpha = model.channel == 4;
 
-	if (tensorLayout == 'NHWC') {
+	if (mode.layout == 'NHWC') {
 		if (channels == 4 && !modelAllowAlpha) { // Input 4 channels, model require 3.
 			const rgb = [];
 			for (let i = 0; i < data.length; i += channels) {
@@ -48,13 +65,13 @@ function transposeToTensor(data, channels = 3, modelChannels) {
 	}
 }
 
-function makeInputTensor(pixels, imgChannels, width, height, modelChannels) {
-	const tensorArray8bit = transposeToTensor(pixels, imgChannels, modelChannels);
-	const tensorArrayFloat = createFloatArray(width, height, modelChannels);
+function makeInputTensor(pixels, imgChannels, width, height, model) {
+	const tensorArray8bit = transposeToTensor(pixels, imgChannels, model.channel);
+	const tensorArrayFloat = createFloatArray(width, height, model);
 	convertToFloat(tensorArray8bit, tensorArrayFloat);
 	return tensorArrayFloat;
 } 
-*/
+
 
 function tensorToRGB(tensorData, width, height, channels) { // For NCHW tensor output layout
 	const data = new Uint8Array(width * height * channels);
@@ -84,12 +101,17 @@ function tensorToRGB(tensorData, width, height, channels) { // For NCHW tensor o
 	return data;
 }
 
+
 function convertToFloat(transposed, transposed32) { // All types of floats
 	let i, l = transposed.length;
 	for (i = 0; i < l; i++) {
 		transposed32[i] = transposed[i] / 255.0;
 	}
 }
+
+*/
+
+
 
 function convertTo8Bit(transposed32, tensorArray8bit) {
 	let i, l = transposed32.length; // length of the input float array
@@ -153,10 +175,42 @@ function makeDims(layout, { W = 0, H = 0, C = 3, N = 1 }) {
 	return dims;
 }
 
+function retainAlpha(pixels, input_channels, model_channels) {
+	let retainedAlpha = [], i = 0;
+	if (input_channels == 4 && model_channels == 3) { 
+		for (i; i < pixels.length; i += 4) {
+			retainedAlpha.push(pixels[i]);
+		}
+	}
+	return retainedAlpha;
+}
+
+//#region padding
+function calculatePadding(size, tileSize) {
+	const remainder = size % tileSize;
+	const padding = remainder === 0 ? 0 : tileSize - remainder;
+	return padding;
+}
+
+function calculatePaddedDimensions(width, height, tileSize) {
+	const paddingRight = calculatePadding(width, tileSize);
+	const paddingBottom = calculatePadding(height, tileSize);
+	const newWidth = width + paddingRight;
+	const newHeight = height + paddingBottom;
+
+	return {
+		paddingRight,
+		paddingBottom,
+		width: newWidth,
+		height: newHeight,
+	};
+}
+
+
 //#endregion
 //#region decode to rgb
 
-function drawRGB(blob) {
+function drawRGB(blob, width, height) {
 	return new Promise(async (resolve, reject) => {
 		createImageBitmap(blob).then(
 			function (bitmap) {
@@ -169,7 +223,7 @@ function drawRGB(blob) {
 	});
 }
 
-const loadImage = async (source) => {
+const loadImage = async (source, width, height) => {
 	return new Promise((resolve, reject) => {
 		var blob;
 		var fileDataArray;
@@ -177,7 +231,7 @@ const loadImage = async (source) => {
 			fetch(source)
 				.then(response => response.blob())
 				.then(async (blob) => {
-					let result = await drawRGB(blob);
+					let result = await drawRGB(blob, width, height);
 					resolve(result);
 				})
 				.catch(error => reject(error));
@@ -187,7 +241,7 @@ const loadImage = async (source) => {
 			reader.onload = async function (e) {
 				fileDataArray = new Uint8Array(e.target.result);
 				blob = new Blob([fileDataArray], { type: source.type });
-				let result = await drawRGB(blob);
+				let result = await drawRGB(blob, width, height);
 				resolve(result);
 			};
 			reader.readAsArrayBuffer(source);
@@ -210,8 +264,7 @@ async function fileFromOffscreenCanvas(offscreenCanvas, rgb, quality, format) {
 	const offscreenContext = offscreenCanvas.getContext('2d');
 
 	drawRectangleWithColor(offscreenCanvas, rgb);
-	rgb = null;
-	// Get the image data
+	rgb = null; 
 	const imageData = offscreenContext.getImageData(0, 0, offscreenCanvas.width, offscreenCanvas.height);
 	const tempCanvas = new OffscreenCanvas(offscreenCanvas.width, offscreenCanvas.height);
 	const tempContext = tempCanvas.getContext('2d');
@@ -238,25 +291,87 @@ async function createBlobFromRgbData(pixelData, width, height, compressionQualit
 	})
 }
 
-function createFloatArray(width, height, modelChannels) {
-	if (dataType == 'float32') {
-		return new Float32Array(width * height * modelChannels);
+// function createFloatArray(width, height, model) {
+// 	if (model.dataType == 'float32') {
+// 		return new Float32Array(width * height * model.channel);
+// 	}
+// 	if (model.dataType == 'float16') {
+// 		return new Float32Array(width * height * model.channel);
+// 	}
+// 	if (model.dataType == 'float64') {
+// 		return new Float64Array(width * height * model.channel);
+// 	}
+// }
+
+//#region slicers
+
+function paddedImageData(originalData, originalWidth, originalHeight, newWidth, newHeight) {
+	const bytesPerPixel = 3; // Since we're working with RGB data 
+	const newSize = newWidth * newHeight * bytesPerPixel;
+
+	// Create a new Uint8Array for the padded image data
+	const paddedData = new Uint8Array(newSize);
+
+	// Fill the new array with the original image data
+	for (let y = 0; y < originalHeight; y++) {
+		for (let x = 0; x < originalWidth; x++) {
+			for (let c = 0; c < bytesPerPixel; c++) {
+				const originalIndex = (y * originalWidth + x) * bytesPerPixel + c;
+				const paddedIndex = (y * newWidth + x) * bytesPerPixel + c;
+				paddedData[paddedIndex] = originalData[originalIndex];
+			}
+		}
 	}
-	if (dataType == 'float16') {
-		return new Float32Array(width * height * modelChannels);
-	}
-	if (dataType == 'float64') {
-		return new Float64Array(width * height * modelChannels);
-	}
+
+	// The remaining pixels in `paddedData` will be the padding (initialized to 0)
+	return paddedData;
 }
 
-//#region create input chunks
+// Work-in-Progress
+function pixelSlicerSquare(pixels, width, height, model) {
+	const tileSize = model.tileSize;
+	const channels = input.length == (width * height * 3) ? 3 : 4;
+	const retainedAlpha = retainAlpha(pixels, channels, model.channel);
 
-function pixelsSlicer(pixels, chunkSize, width, height, channels) {
+	const newDimension = calculatePaddedDimensions(width, height, tileSize);
+	const newData = paddedImageData(pixels, width, height, newDimension.width, newDimension.height);
+
+	const tileX = newDimension.width / tileSize;
+	const tileY = newDimension.height / tileSize;
+	const totalTiles = tileX * tileY;
 	const pixelChunks = [];
 
+	for (let y = 0; y < tileY; y++) {
+		for (let x = 0; x < tileX; x++) {
+			const tileData = [];
+
+			for (let ty = 0; ty < tileSize; ty++) {
+				for (let tx = 0; tx < tileSize; tx++) {
+					const srcIndex = ((y * tileSize + ty) * width + (x * tileSize + tx)) * 4;
+					const destIndex = (ty * tileSize + tx) * 4;
+
+					tileData[destIndex] = newData[srcIndex];       // Red
+					tileData[destIndex + 1] = newData[srcIndex + 1]; // Green
+					tileData[destIndex + 2] = newData[srcIndex + 2]; // Blue
+					tileData[destIndex + 3] = newData[srcIndex + 3]; // Alpha
+				}
+			}
+
+			pixelChunks.push(new ChunkData({ data: tileData, h: tileSize, w: tileSize, model: model }));
+		}
+	}
+
+}
+
+function pixelsSlicerVertical(pixels, chunkSize, width, height, model) {
+	let pixelChunks = [];
+	const originalHeight = height;
+
+	const channels = pixels.length / (width * height);
+	const retainedAlpha = retainAlpha(pixels, channels, model.channel);
+ 
 	if (width * height <= chunkSize) {
-		return [{ data: pixels, h: height, w: width }];
+		return [new ChunkData({ data: pixels, h: height, w: width })];
 	}
 
 	const chunkHeight = Math.round(chunkSize / width);
@@ -264,78 +379,37 @@ function pixelsSlicer(pixels, chunkSize, width, height, channels) {
 
 	for (let i = 0; i < pixels.length;) {
 		if (i + sliceSize >= pixels.length) {
-			pixelChunks.push({ data: pixels.slice(i), h: height, w: width });
+			pixelChunks.push(new ChunkData({ data: pixels.slice(i), h: height, w: width, model: model }));
 			break;
 		}
 
-		pixelChunks.push({ data: pixels.slice(i, i + sliceSize), h: chunkHeight, w: width });
+		pixelChunks.push(new ChunkData({ data: pixels.slice(i, i + sliceSize), h: chunkHeight, w: width, model: model }));
 		height -= chunkHeight;
 		i += sliceSize;
 	}
 
-	return pixelChunks;
+	self.postMessage({ pixelChunks: pixelChunks, insert: "insertVertical", alphaData: retainedAlpha, prevData: { data: pixels, w: width, h: originalHeight, channels: channels } });
+	pixelChunks = null;
+	return;
 }
 
 //#endregion
-//#region main-thread listener
+//#region message listener
 
 self.onmessage = async function (event) {
 	const data = event.data.input;
-	const input = data.img; // Array buffer or a file.
-	width = data.w;
-	height = data.h;
-	tensorLayout = data.layout;
-	dataType = data.dataType;
+	const input = data.img; // Array buffer or a file.   
 
 	// Create sliced image from typed array.
-	if (event.data.context == 'transpose-pixels') { // Input is rgb/a pixels (uint8).
-		const channels = input.length == (width * height * 3) ? 3 : 4;
-		let tensorChunks = [], retainedAlpha = [];
-
-		if (channels == 4 && data.modelChannels == 3) {
-			for (let i = 3; i < pixels.length; i += 4) {
-				retainedAlpha.push(pixels[i]);
-			}
-		}
-		const pixelChunks = pixelsSlicer(input, data.chunkSize, width, height, channels);
-
-		for (let i = 0; i < pixelChunks.length; i++) {
-			// const tensorArrayFloat = makeInputTensor(pixelChunks[i].data, channels, width, pixelChunks[i].h, data.modelChannels);
-			const dims = makeDims(tensorLayout, { C: data.modelChannels, N: 1, W: width, H: pixelChunks[i].h });
-			pixelChunks[i].dims = dims;
-			//tensorChunks.push({ tensor: tensorArrayFloat, dims: dims, w: width, h: pixelChunks[i].h, c: data.modelChannels });
-		}
-
-		self.postMessage({ tensorChunks: pixelChunks, alphaData: retainedAlpha, prevData: { w: width, h: height, channels: channels } });
-		tensorChunks = null;
-		return;
+	if (event.data.context == 'transpose-pixels') { // Input is rgb/a pixels (uint8). 
+		data.model.tileSize ? pixelSlicerSquare(input, data.w, data.h, data.model) : pixelsSlicerVertical(input, data.chunkSize, data.w, data.h, data.model);
 	}
 
 	// Create sliced image from image File.
 	if (event.data.context == "decode-transpose") { // Input is native image File object.
-		loadImage(input)
-			.then((pixels) => {
-				let tensorChunks = [], retainedAlpha = [];
-				const channels = input.length == (width * height * 3) ? 3 : 4;
-
-				if (channels == 4 && data.modelChannels == 3) {
-					for (let i = 3; i < pixels.length; i += 4) {
-						retainedAlpha.push(pixels[i]);
-					}
-				}
-
-				const pixelChunks = pixelsSlicer(pixels, data.chunkSize, width, height, channels);
-
-				for (let i = 0; i < pixelChunks.length; i++) {
-					// const tensorArrayFloat = makeInputTensor(pixelChunks[i].data, channels, width, pixelChunks[i].h, data.modelChannels);
-					const dims = makeDims(tensorLayout, { C: data.modelChannels, N: 1, W: width, H: pixelChunks[i].h });
-					pixelChunks[i].dims = dims;
-					// tensorChunks.push({ tensor: tensorArrayFloat, dims: dims, w: width, h: pixelChunks[i].h, c: data.modelChannels });
-				}
-				// Send the processed data back to the main threa
-				self.postMessage({ tensorChunks: pixelChunks, alphaData: retainedAlpha, prevData: { w: width, h: height, channels: channels } });
-				tensorChunks = null;
-				return;
+		loadImage(input, data.w, data.h)
+			.then((pixels) => { 
+				data.model.tileSize ? pixelSlicerSquare(pixels, data.w, data.h, data.model) : pixelsSlicerVertical(pixels, data.chunkSize, data.w, data.h, data.model);
 			})
 			.catch((error) => {
 				console.error(error);
@@ -346,9 +420,9 @@ self.onmessage = async function (event) {
 	// Create image blob from output tensor.
 	if (event.data.context == "transpose-encode") {
 		try {
-			let rgb8 = new Uint8Array(width * height * data.c);
+			let rgb8 = new Uint8Array(data.w * data.h * data.c);
 			convertTo8Bit(data.data, rgb8);
-			const outputFile = await createBlobFromRgbData(rgb8, width, height, data.q / 100, data.c, data.f);
+			const outputFile = await createBlobFromRgbData(rgb8, data.w, data.h, data.q / 100, data.c, data.f);
 			self.postMessage(outputFile);
 		}
 		catch (error) {
@@ -360,7 +434,7 @@ self.onmessage = async function (event) {
 	// Create image blob from uint8 pixel data.
 	if (event.data.context == "encode-pixels") {
 		try {
-			const outputFile = await createBlobFromRgbData(data.data, width, height, data.q / 100, data.f);
+			const outputFile = await createBlobFromRgbData(data.pixels, data.w, data.h, data.q / 100, data.f);
 			self.postMessage(outputFile);
 		}
 		catch (error) {
