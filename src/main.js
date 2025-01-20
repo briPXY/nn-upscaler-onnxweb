@@ -99,7 +99,7 @@ async function _prepareInputOutput(model, input, output, width, height) {
     let result;
 
     if (input instanceof File) {
-        result = await Image.prepareInputFromFile(input, model); 
+        result = await Image.prepareInputFromFile(input, model);
     }
 
     else if (input instanceof Uint8Array || input instanceof Uint8ClampedArray) {
@@ -111,16 +111,12 @@ async function _prepareInputOutput(model, input, output, width, height) {
     else {
         throw "Input error -- input type is not supported";
     }
- 
+
     handlers.chunkProcess.total = result.totalChunks;
-    output.alphaData = result.alphaData;
     output.prevData = result.prevData;
-    output._insert = result.insert;
-    
-    if (model.tileSize){
-        output._tileDim = result.tileDim;
-        output._prePadding = result.prePadding;
-    }
+    output.insert = result.insert;
+    output._prePadding = result.prePadding;
+    output._tileDim = result.tileDim;
 
     return;
 }
@@ -141,7 +137,7 @@ async function _createTensor(input, model) {
 async function _sessionRunner(ModelInfo, output) {
     const input = d_in.shift();
 
-    const inputTensor = await _createTensor(input, ModelInfo); 
+    const inputTensor = await _createTensor(input, ModelInfo);
 
     const session = await ort.InferenceSession.create(ModelInfo.url, InferenceOpt);
     const inputName = session.inputNames[0];
@@ -149,15 +145,15 @@ async function _sessionRunner(ModelInfo, output) {
 
     // prepare feeds. use model input tensor names as keys ()
     const feeds = { [inputName]: inputTensor };
-  
+
     const result = await session.run(feeds);
     handlers.chunkProcess.doneEvent();
 
     let outputTensor = result[outputName];
     const imageData = outputTensor.toImageData();
     const tensorBuffer = await outputTensor.getData();
-    
-    output.insertTensor(tensorBuffer, null, imageData.height, ModelInfo)
+
+    output.insertTensorChunk(tensorBuffer, null, imageData.height, ModelInfo);
     output.insertImageChunk(imageData);
 
     inputTensor.dispose();
@@ -168,8 +164,7 @@ async function _sessionRunner(ModelInfo, output) {
         await _sessionRunner(ModelInfo, output);
     }
 
-    output.dims = Dims(ModelInfo.layout, { W: output.imageData.width, H: output.imageData.height, C: ModelInfo.channel, N: 1 }); 
-    output.finish(true);
+    output.finish();
 
     return;
 }
@@ -202,12 +197,11 @@ async function _sessionRunner_thread(ModelInfo, output) {
             if (event.data.tensor) {
                 d_in.shift();
                 const imageData = event.data.image;
-                output.insertTensor(event.data.tensor, null, imageData.height, ModelInfo);
-                output.insertImageChunk(imageData)
+                output.insertTensorChunk(event.data.tensor, null, imageData.height, ModelInfo);
+                output.insertImageChunk(imageData);
 
                 if (d_in.length === 0) {
-                    output.dims = Dims(ModelInfo.layout, { W: output.imageData.width, H: output.imageData.height, C: ModelInfo.channel, N: 1 });
-                    output.finish(true);
+                    output.finish();
                     webGPUWorker.postMessage('cleanup');
                     webGPUWorker.terminate();
                     resolve('done');
@@ -250,6 +244,7 @@ export async function inferenceRun(model, input, output, inputWidth, inputHeight
         _validateParam(model, output);
         await _prepareInputOutput(model, input, output, inputWidth, inputHeight);
         output.tensor = TypedArray[model.dataType](0);
+        output.model = model;
 
         if (runtimeIsGPU) {
             // Force NCHW for webgpu if input is NCHW, because default is NHWC, this should be on basic onnxweb's docs!

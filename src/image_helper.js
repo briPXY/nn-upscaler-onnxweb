@@ -31,7 +31,7 @@ export async function prepareInputFromFile(nativeFIle, model, blob) {
 
 				result.pixelChunks.forEach(e => d_in.push(e));
 				result.pixelChunks.length = 0;
-				resolve({ totalChunks: d_in.length, alphaData: result.alphaData, prevData: result.prevData, insert: result.insert, tileDim: result.tileDim, prePadding: result.prePadding });
+				resolve({ totalChunks: d_in.length, prevData: result.prevData, insert: result.insert, tileDim: result.tileDim, prePadding: result.prePadding });
 			};
 			img.onerror = (error) => {
 				console.error("error reading file");
@@ -55,7 +55,7 @@ export async function prepareInputFromPixels(img = new Uint8Array(0), width = 0,
 
 	result.pixelChunks.forEach(e => d_in.push(e));
 	result.pixelChunks.length = 0;
-	return { totalChunks: d_in.length, alphaData: result.alphaData, prevData: result.prevData, insert: result.insert, tileDim: result.tileDim, prePadding: result.prePadding };
+	return { totalChunks: d_in.length, prevData: result.prevData, insert: result.insert, tileDim: result.tileDim, prePadding: result.prePadding };
 }
 
 export function prepareInputFromTensor(input, width, height, model) {
@@ -188,7 +188,13 @@ export function stashAlpha(source, dest) {
 	}
 }
 
-export function mergeVertical(newData, imageData) {
+/**
+ * Insert new image output from top-down.
+ * @param {Uint8Array} newData - New image
+ * @param {Uint8Array} imageData - Target image
+ * @returns {Uint8Array} - Merged image
+ */
+export function insertVertical(newData, imageData) {
 	const arrays = [imageData.data, newData.data];
 	const totalLength = arrays.reduce((acc, array) => acc + array.length, 0);
 	let result = new Uint8Array(totalLength);
@@ -199,14 +205,45 @@ export function mergeVertical(newData, imageData) {
 		offset += array.length;
 	});
 
-	arrays.length = 0
 	imageData.width = newData.width;
 	imageData.height += newData.height;
 	imageData.data = result;
+	arrays.length = 0;
 }
 
-export function insertNewTile(){
+export function createCanvas(width, height) {
+	const canvas = document.createElement("canvas");
+	canvas.width = width;
+	canvas.height = height;
+	return canvas;
+}
 
+export function insertNewTile(newData, tempCanvas, tilePos, tileDim) {
+	const newImageData = new ImageData(new Uint8ClampedArray(newData.data.buffer), newData.width, newData.height);
+	const ctx = tempCanvas.getContext("2d", { willReadFrequently: true });
+
+	const coordX = tilePos.x * newData.width;
+	const coordY = tilePos.y * newData.height;
+
+	ctx.putImageData(newImageData, coordX, coordY);
+
+	tileDim.resultSize = newData.width;
+	tilePos.x += 1;
+
+	if (tilePos.x > tileDim.x - 1) {
+		tilePos.x = 0;
+		tilePos.y += 1;
+	}
+}
+
+export function extractCanvasData(canvas, x, y, width, height, clear = true) {
+	const ctx = canvas.getContext('2d');
+	const imageData = ctx.getImageData(x, y, width, height);
+	if (clear) {
+		ctx.clearRect(0, 0, canvas.width, canvas.height); // Clear canvas data
+		canvas = null;
+	}
+	return { data: new Uint8Array(imageData.data.buffer), w: width, h: height }
 }
 
 // Resize original for the source of AI upscaled alpha channel

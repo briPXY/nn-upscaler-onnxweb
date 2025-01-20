@@ -31,16 +31,19 @@ There is also webgl runtime but acts unexpected (dims/tensor layout always rejec
 #### Basic inference
 ```javascript
 // Model instance and required infos.
-const upscaleModel = new wnx.Model('https://cdn-domain.com/path/to/model.onnx');
-upscaleModel.dataType: 'float32';
-upscaleModel.layout: 'NCHW';
-upscaleModel.channel: 3;
+const myModel = new wnx.Model('https://cdn-domain.com/path/to/model.onnx');
+myModel.dataType: 'float32';
+myModel.layout: 'NCHW';
+myModel.channel: 3;
+
+// If the model is tile based (like Real-ESRGAN-General), assigning tileSize is required.
+myModel.tileSize = 128;
 
 // OutputData instance.
 const output = new wnx.OutputData({preserveAlpha: true});
 
 // Start inference with an image file from input.
-await wnx.inferenceRun(upscaleModel, fileInput.files[0], output);
+await wnx.inferenceRun(myModel, fileInput.files[0], output);
 
 // Get result.
 output.imageData; // contain pixel buffer (Uint8array) and output dimensions
@@ -70,9 +73,10 @@ Convert output tensor (nchw) to image data (rgb), return an Uint16Array.
 const imageData16 = await wnx.Image.tensorToRGB16_NCHW(output.tensor)
 ```
 
-## Known Issues
-- Significant pixels artifacts at the edge of opaque shapes in transparent image after upscaling.
-- Unmanaged webpage's memory usage (likely heaps from onnx-runtime) after an inference, maybe equally high as youtube page but expected to be more lightweight.
+## Known Issues and Limitations 
+- No merged tensor output yet for models with tile based tensors.
+- Unmanaged page's memory usage (likely heaps from onnx-runtime) after an inference, equal as youtube page but expected to be more lightweight.
+- Inference on browser might less performant than running onnx model natively.
 
 ## Included Models
 
@@ -84,6 +88,7 @@ const imageData16 = await wnx.Image.tensorToRGB16_NCHW(output.tensor)
 
 
 ## Additional Informations
+
 
 ### Additional Models and Runtime Informations
 - More information about usage of onnxruntime-web (https://onnxruntime.ai/docs/tutorials/web/).

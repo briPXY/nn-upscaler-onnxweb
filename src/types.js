@@ -1,17 +1,21 @@
-import { resizeRGBACanvas, mergeVertical, insertNewTile, mergeTensorsVertical } from "./image_helper";
+import { resizeRGBACanvas, insertVertical, insertNewTile, mergeTensorsVertical, extractCanvasData, createCanvas } from "./image_helper";
 
 export class OutputData {
     includeTensor = true;
     preserveAlpha = true;
-    dumpOriginalImageData = false;
+    dumpOriginalImageData = true;
 
     #locked = false;
-    _insert = "insertVertical";
+    _insertMethod = "insertVertical";
 
     multiplier;
-    _tileDim;
-    #tilePos = { x: 0, y: 0 };
+    model;
 
+    _tileDim = { x: 0, y: 0, size: 0, resultSize: 0 };
+    _tilePos = { x: 0, y: 0 };
+    _tempCanvas = null;
+
+    tensorDims;
     tensor;
     imageData = {
         data: new Uint8Array(),
@@ -19,14 +23,8 @@ export class OutputData {
         height: 0,
     };
 
-    alphaData = [];
-
-    prevData = {
-        data: null,
-        resized: null,
-    };
-
-    _prePadding = {} // Pre-padding original dimensions for cropping
+    prevData = { w: 0, h: 0, data: null, channels: 0, resized: null }; // Original data, post-padding.
+    _prePadding = { w: 0, h: 0, data: null } // Pre-padding original dimensions for cropping 
 
     constructor({ includeTensor = true, preserveAlpha = true, dumpOriginalImageData = false } = {}) {
         this.includeTensor = includeTensor;
@@ -38,57 +36,68 @@ export class OutputData {
      * @param {string} v
      */
     set insert(v) {
-        this._insert = '_' + v;
+        this._insertMethod = v;
     }
 
     /**
      * Operations after full-image/chunks inferences 
      * @param {boolean} cond
      */
-    set finish(cond) {
-        if (!cond || this.#locked) {
+    finish() {
+        if (this.#locked) {
             return;
         }
 
+        const originalImage = this._prePadding.data ? this._prePadding : this.prevData;
         this.multiplier = this.imageData.width / this.prevData.w;
 
-        if (this.multiplier == 1 && this.alphaData.length > 0 && this.preserveAlpha) {
+        if (this._tempCanvas) { // Tiled model
+            this.multiplier = this._tileDim.resultSize / this._tileDim.size;
+            const finalImg = extractCanvasData(this._tempCanvas, 0, 0, this._prePadding.w * this.multiplier, this._prePadding.h * this.multiplier);
+            this.imageData.data = finalImg.data;
+            this.imageData.width = finalImg.w;
+            this.imageData.height = finalImg.h;
+        }
+
+        if (this.multiplier == 1 && this.preserveAlpha && this.prevData.channels == 4) {
             this.#replaceAlpha();
         }
-        else if (this.multiplier > 1 && this.alphaData.length > 0 && this.preserveAlpha) {
-            this.prevData.resized = resizeRGBACanvas(this.prevData.data, this.prevData.w, this.prevData.h, this.multiplier);
+        else if (this.multiplier > 1 && this.preserveAlpha && this.prevData.channels == 4) {
+            this.prevData.resized = resizeRGBACanvas(originalImage.data, originalImage.w, originalImage.h, this.multiplier);
             this.#replaceAlpha();
         }
 
         if (this.dumpOriginalImageData) {
-            this.prevData.data = null;
-            this.prevData.resized = null;
+            this.prevData.data = 'dumped';
+            this.prevData.resized = 'dumped';
+            this._prePadding.data = "dumped";
         }
-        
+
+        this.tensorDims = Dims(this.model.layout, { W: this.imageData.width, H: this.imageData.height, C: this.model.channel, N: 1 });
         this.#locked = true;
     }
 
-    _insertVertical(newData) {
-        mergeVertical(newData, this.imageData);
-    };
-
-    _insertTile(newData) {
-        insertNewTile(newData, this.imageData, pos);
-    } 
-
     // Merge result pixel data. Called after inference on one chunk
-    insertImageChunk(data) {
-        this[this._insert](data); // insertVertical() or insertTile()
+    insertImageChunk(newData) {
+        if (this._insertMethod == "insertVertical") {
+            insertVertical(newData, this.imageData);
+        }
+        else {
+            if (!this._tempCanvas) {
+                this._tempCanvas = createCanvas(this._tileDim.x * newData.width, this._tileDim.y * newData.height);
+            }
+            insertNewTile(newData, this._tempCanvas, this._tilePos, this._tileDim);
+        }
     };
 
-    insertTensorChunk(newTensor, newWidth, newHeight, model){
-        if (this._insert == "insertVertical"){
+    insertTensorChunk(newTensor, newWidth, newHeight, model) {
+        if (this._insertMethod == "insertVertical") {
             this.tensor = mergeTensorsVertical[model.layout](this.tensor, newTensor, this.imageData.height, newHeight, this.imageData.width, model.channel, model.dataType);
-        } 
+        }
     }
 
     #replaceAlpha() {
-        for (let i = 0; i < this.imageData.data.length; i += 4) {
+        for (let i = 3; i < this.imageData.data.length; i += 4) {
             this.imageData.data[i] = this.prevData.resized[i];
         }
     };
@@ -119,12 +128,14 @@ export function Dims(layout, { W = 0, H = 0, C = 3, N = 1 }) {
     return dims;
 }
 
+
 export const ChunkLevel = {
     1: 40000,
     2: 160000,
     3: 640000,
     4: 1440000
 }
+
 
 export class Model {
     constructor(input) {

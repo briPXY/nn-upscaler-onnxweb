@@ -175,14 +175,18 @@ function makeDims(layout, { W = 0, H = 0, C = 3, N = 1 }) {
 	return dims;
 }
 
-function retainAlpha(pixels, input_channels, model_channels) {
-	let retainedAlpha = [], i = 0;
-	if (input_channels == 4 && model_channels == 3) {
-		for (i; i < pixels.length; i += 4) {
-			retainedAlpha.push(pixels[i]);
-		}
-	}
-	return retainedAlpha;
+function createCanvas(pixels, width, height) {
+	const canvas = new OffscreenCanvas(width, height);
+	const ctx = canvas.getContext('2d', { willReadFrequently: true });
+	const imageData = new ImageData(new Uint8ClampedArray(pixels.buffer), width, height)
+	ctx.putImageData(imageData, 0, 0);
+	return canvas;
+}
+
+function cropCanvasData(canvas, x, y, width, height) {
+	const ctx = canvas.getContext('2d');
+	const imageData = ctx.getImageData(x, y, width, height);
+	return new Uint8Array(imageData.data.buffer);
 }
 
 //#region padding
@@ -303,75 +307,71 @@ async function createBlobFromRgbData(pixelData, width, height, compressionQualit
 // 	}
 // }
 
-//#region slicers
+//#region Image slicers
 
-function paddedImageData(originalData, originalWidth, originalHeight, newWidth, newHeight) {
-	const bytesPerPixel = 3;
-	const newSize = newWidth * newHeight * bytesPerPixel;
- 
+function paddedImageData(originalData, originalWidth, originalHeight, newWidth, newHeight, channels) {
+	const newSize = newWidth * newHeight * channels;
+
 	const paddedData = new Uint8Array(newSize).fill(0);
 
 	// Fill the new array with the original image data
 	for (let y = 0; y < originalHeight; y++) {
 		for (let x = 0; x < originalWidth; x++) {
-			for (let c = 0; c < bytesPerPixel; c++) {
-				const originalIndex = (y * originalWidth + x) * bytesPerPixel + c;
-				const paddedIndex = (y * newWidth + x) * bytesPerPixel + c;
+			for (let c = 0; c < channels; c++) {
+				const originalIndex = (y * originalWidth + x) * channels + c;
+				const paddedIndex = (y * newWidth + x) * channels + c;
 				paddedData[paddedIndex] = originalData[originalIndex];
 			}
 		}
 	}
- 
+
 	return paddedData;
 }
 
-// Work-in-Progress
+// Tile based slicer, from top
 function pixelSlicerSquare(pixels, width, height, model) {
 	const tileSize = model.tileSize;
-	const channels = input.length == (width * height * 3) ? 3 : 4;
-	const retainedAlpha = retainAlpha(pixels, channels, model.channel);
+	const channels = pixels.length / (width * height);
 
 	const newDim = calculatePaddedDimensions(width, height, tileSize);
-	const newData = paddedImageData(pixels, width, height, newDim.width, newDim.height);
+	const newData = paddedImageData(pixels, width, height, newDim.width, newDim.height, 4);
+	const canvas = createCanvas(newData, newDim.width, newDim.height);
 
 	const tileX = newDim.width / tileSize;
 	const tileY = newDim.height / tileSize;
+	const totalTiles = tileX * tileY;
+	let tx = 0, ty = 0;
+
 	const pixelChunks = [];
 
-	for (let y = 0; y < tileY; y++) {
-		for (let x = 0; x < tileX; x++) {
-			const tileData = [];
+	for (let i = 0; i < totalTiles; i++) {
+		const croppedData = cropCanvasData(canvas, tx * tileSize, ty * tileSize, tileSize, tileSize);
+		tx += 1;
 
-			for (let ty = 0; ty < tileSize; ty++) {
-				for (let tx = 0; tx < tileSize; tx++) {
-					const srcIndex = ((y * tileSize + ty) * width + (x * tileSize + tx)) * 4;
-					const destIndex = (ty * tileSize + tx) * 4;
-
-					tileData[destIndex] = newData[srcIndex];       // Red
-					tileData[destIndex + 1] = newData[srcIndex + 1]; // Green
-					tileData[destIndex + 2] = newData[srcIndex + 2]; // Blue
-					tileData[destIndex + 3] = newData[srcIndex + 3]; // Alpha
-				}
-			}
-
-			pixelChunks.push(new ChunkData({
-				data: tileData,
-				h: tileSize,
-				w: tileSize,
-				model: model, 
-			}));
+		if (tx >= tileX) {
+			tx = 0;
+			ty += 1;
 		}
+
+		pixelChunks.push(new ChunkData({
+			data: croppedData,
+			w: tileSize,
+			h: tileSize,
+			model: model,
+		}));
+
 	}
 
 	self.postMessage({
 		pixelChunks: pixelChunks,
-		insert: "insertTiles",
-		alphaData: retainedAlpha,
+		insert: "insertTile",
 		prevData: { data: newData, w: newDim.width, h: newDim.height, channels: channels },
-		tileDim: { x: tileX, y: tileY, size: model.tileSize},
-		prePadding: {w: width, h: height},
+		tileDim: { x: tileX, y: tileY, size: model.tileSize },
+		prePadding: { data: pixels, w: width, h: height },
 	});
-	pixelChunks = null;
+
+	canvas.getContext("2d").clearRect(0, 0, newDim.width, newDim.height);
+	pixelChunks.length = 0;
 	return;
 
 }
@@ -381,7 +381,6 @@ function pixelsSlicerVertical(pixels, chunkSize, width, height, model) {
 	const originalHeight = height;
 
 	const channels = pixels.length / (width * height);
-	const retainedAlpha = retainAlpha(pixels, channels, model.channel);
 
 	if (width * height <= chunkSize) {
 		return [new ChunkData({ data: pixels, h: height, w: width })];
@@ -401,12 +400,11 @@ function pixelsSlicerVertical(pixels, chunkSize, width, height, model) {
 		i += sliceSize;
 	}
 
-	self.postMessage({ 
-		pixelChunks: pixelChunks, 
-		insert: "insertVertical", 
-		alphaData: retainedAlpha, 
+	self.postMessage({
+		pixelChunks: pixelChunks,
+		insert: "insertVertical",
 		prevData: { data: pixels, w: width, h: originalHeight, channels: channels },
-		prePadding: null,
+		prePadding: { w: width, h: originalHeight, data: null },
 		tileDim: null,
 	});
 	pixelChunks = null;
