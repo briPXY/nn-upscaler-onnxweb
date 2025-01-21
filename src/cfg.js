@@ -8,7 +8,7 @@ export const cfg = {
     _defaultModulePath: document.currentScript.src.match(/.+\//)[0],
 };
 
-export const backendPath = {
+export const modulePath = {
     webgpu: `${cfg._defaultModulePath}ort.webgpu.min.js`,
     _wasm: `${cfg._defaultModulePath}ort.wasm.min.js`,
     all: `${cfg._defaultModulePath}ort.all.min.js`,
@@ -25,7 +25,7 @@ _env.wasm.wasmPaths = `${cfg._defaultModulePath}`;
 _env.wasm.proxy = false;
 _env.wasm.numThreads = threads.default;
 
-Object.defineProperty(backendPath, 'wasm', {
+Object.defineProperty(modulePath, 'wasm', {
     get: function () {
         return this._wasm;
     },

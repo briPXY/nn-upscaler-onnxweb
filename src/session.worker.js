@@ -48,7 +48,7 @@ self.addEventListener('message', async (event) => {
 
         // Import backend provider script  
         if (typeof ort == 'undefined') {
-            importScripts(event.data.backendPath);
+            importScripts(event.data.modulePath);
         }
 
         setEnv(env);

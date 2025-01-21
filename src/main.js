@@ -1,10 +1,12 @@
 import * as Image from './image_helper';
 import * as meta from './meta';
-import { cfg, backendPath, _env } from './cfg';
+import { cfg, modulePath, _env } from './cfg';
 import { OutputData, Dims, ChunkLevel, Model, TypedArray } from './types';
 
 // worker raw
 import sessionRawWorker from './session.worker';
+
+export const env = _env;
 
 export const InferenceOpt = {
     executionProviders: meta.providers,
@@ -72,9 +74,9 @@ export function setInferenceOption(obj = {}) {
 export function setRuntimePathAll(url) {
     /\/$/.test(url) ? url : url += '/';
     cfg._defaultModulePath = url;
-    backendPath.all = `${url}ort.all.min.js`;
-    backendPath.webgpu = `${url}ort.webgpu.min.js`;
-    backendPath.wasm = `${url}ort.wasm.min.js`;
+    modulePath.all = `${url}ort.all.min.js`;
+    modulePath.webgpu = `${url}ort.webgpu.min.js`;
+    modulePath.wasm = `${url}ort.wasm.min.js`;
 }
 
 const _setWebGpuExecProvider = (layout) => {
@@ -182,7 +184,7 @@ async function _sessionRunner_thread(ModelInfo, output) {
             dims: d_in[0].dims,
             cfg: cfg,
             env: _env,
-            backendPath: InferenceOpt.executionProviders[0] == 'wasm' ? backendPath._wasm : backendPath.webgpu,
+            modulePath: InferenceOpt.executionProviders[0] == 'wasm' ? modulePath._wasm : modulePath.webgpu,
             ModelInfo: ModelInfo,
             InferenceOpt: InferenceOpt
         }, [bitmap]);
@@ -253,7 +255,7 @@ export async function inferenceRun(model, input, output, inputWidth, inputHeight
             InferenceOpt.preferredOutputLocation = 'cpu';
         }
 
-        if (!cfg.wasmGpuRunOnWorker) {
+        if (!cfg.wasmGpuRunOnWorker || !window.ort) {
             await meta.loadBackendScript();
             _setEnv();
         }
@@ -280,7 +282,7 @@ export async function inferenceRun(model, input, output, inputWidth, inputHeight
     }
 }
 
-export { Image, meta, Model, OutputData, ChunkLevel, cfg, backendPath };
+export { Image, meta, Model, OutputData, ChunkLevel, cfg, modulePath };
 
 Object.defineProperty(window, 'NNU', {
     get: function () {

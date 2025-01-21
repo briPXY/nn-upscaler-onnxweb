@@ -18,7 +18,7 @@ npm start
 ``` 
 _Select an image -> select models / runtime -> upscale_
 
-Bundle and it's backends will generated in static/, bundle.min.js is lightweight due to it's independent from ort module, the javascript backends and it's wasm URL can be provided externally like from a CDN, by assigning the urls on `wnx.backendPath.wasm` or `wnx.backendPath.ort` or `wnx.backendPath.all`.
+Bundle and it's backends will generated in /dist/. Bundle.min.js is lightweight due to it's independent from ort module, the ort modules (recommended to use ort.all.min.js) can be provided externally like from a CDN, by assigning the URL to `wnx.modulePath.all = "path/to/ort.all.min.js"` or set url contain all module/backend file with `wnx.setRuntimePathAll("url/without/filename/)`.
 
 ## Runtime Backends
 - Web Assembly: Multi-threading/SIMD is supported by onnx runtime.
@@ -31,7 +31,7 @@ There is also webgl runtime but acts unexpected (dims/tensor layout always rejec
 #### Basic inference
 ```javascript
 // Model instance and required infos.
-const myModel = new wnx.Model('https://cdn-domain.com/path/to/model.onnx');
+const myModel = new wnx.Model('https://cdn-domain.com/path/to/ImageUpscaling-2x.onnx');
 myModel.dataType: 'float32';
 myModel.layout: 'NCHW';
 myModel.channel: 3;
@@ -50,17 +50,28 @@ output.imageData; // contain pixel buffer (Uint8array) and output dimensions
 output.tensor;   // raw tensor (TypedArray)
 ```
 
-#### Pre-inference settings
-Set wasm [flags](https://onnxruntime.ai/docs/tutorials/web/env-flags-and-session-options.html), example:
-```javascript
-wnx.setWasmFlags({wasmPaths: 'cdn/of/onnxruntime-web/dist/', numThreads: 6})
-```
-Set session [options](https://onnxruntime.ai/docs/tutorials/web/env-flags-and-session-options.html), example:
-```javascript
-wnx.setInferenceOption({executionProviders: ['wasm']})
+#### The 'env' Flags and Session Options
+Described [here](https://onnxruntime.ai/docs/tutorials/web/env-flags-and-session-options.html#the-env-flags-and-session-options). Replace 'ort' with 'wnx', since module only loaded when running inference by default. Example: 
+```javascript 
+wnx.env.wasm.proxy = true;
+wmx.env.logLevel = "verbose";
+
+// To set session options
+wnx.InferenceOpt = {
+    executionProviders: ["webgpu", "wasm"]
+}
 ```
 
-#### Post-inference utility
+#### Configs
+```javascript
+// Force inference on worker if env.wasm.proxy is not available from CORS issue
+wnx.cfg.wasmGpuRunOnWorker = true;
+
+// Chunk level 1 - 4, lower mean less image data sliced each partial inference on an image
+wnx.cfg.avgChunkSize = 2;
+```
+
+#### Post-inference Utility
 Encodes image data from output, return a blob, example
 ```javascript
 const pixels = output.imageData.data;

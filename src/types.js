@@ -60,11 +60,11 @@ export class OutputData {
         }
 
         if (this.multiplier == 1 && this.preserveAlpha && this.prevData.channels == 4) {
-            this.#replaceAlpha();
+            this.#replaceAlpha(this.prevData.data);
         }
         else if (this.multiplier > 1 && this.preserveAlpha && this.prevData.channels == 4) {
             this.prevData.resized = resizeRGBACanvas(originalImage.data, originalImage.w, originalImage.h, this.multiplier);
-            this.#replaceAlpha();
+            this.#replaceAlpha(this.prevData.resized);
         }
 
         if (this.dumpOriginalImageData) {
@@ -96,9 +96,9 @@ export class OutputData {
         }
     }
 
-    #replaceAlpha() {
+    #replaceAlpha(original) {
         for (let i = 3; i < this.imageData.data.length; i += 4) {
-            this.imageData.data[i] = this.prevData.resized[i];
+            this.imageData.data[i] = original[i];
         }
     };
 

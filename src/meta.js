@@ -1,5 +1,5 @@
 // Client infos & utilities
-import { backendPath } from "./cfg";
+import { modulePath } from "./cfg";
 
 export const providers = [];
 export const threads = {};
@@ -44,7 +44,7 @@ export async function loadBackendScript(provider = 'all') {
 			return;
 		}
 
-		script.src = backendPath[provider];
+		script.src = modulePath[provider];
 		script.onload = () => {
 			resolve('loaded');
 		};

@@ -222,6 +222,7 @@ pv.startBtn.addEventListener('click', async function () {
         pv.startBtn.style.display = "none";
         sectionStates({ upscale: 'none', loading: 'flex' });
 
+        wnx.env.logLevel = "error";
         wnx.cfg.wasmGpuRunOnWorker = optionSelect[3].value == "true";
         wnx.cfg.avgChunkSize = Number(optionSelect[4].value);
         wnx.setWasmFlags({ proxy: false, numThreads: 8 });
