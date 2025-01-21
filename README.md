@@ -1,11 +1,12 @@
 # Web Neural Inference for Image Processing Models (ONNX)
 
 Easy interface for running onnx models inference on the web browser, for image processing models. Using ONNX web runtime API.
-Features: Inference on each sliced images for AI models which input tensor's dimension is non-determined, to prevent page crash from large input/model (browser's memory limit policy).
+Features: Inference on each sliced images for AI models which input tensor's dimension is free or non-determined, to prevent page crash from large input/model (browser's memory limit policy).
 
 ## Usage
 
 #### Install and build:
+
 ```bash
 # install dependecies
 npm install
@@ -21,6 +22,7 @@ _Select an image -> select models / runtime -> upscale_
 Bundle and it's backends will generated in /dist/. Bundle.min.js is lightweight due to it's independent from ort module, the ort modules (recommended to use ort.all.min.js) can be provided externally like from a CDN, by assigning the URL to `wnx.modulePath.all = "path/to/ort.all.min.js"` or set url contain all module/backend file with `wnx.setRuntimePathAll("url/without/filename/)`.
 
 ## Runtime Backends
+
 - Web Assembly: Multi-threading/SIMD is supported by onnx runtime.
 - WebGPU: Enabled on Chrome on most devices. Mostly faster than wasm. If you encounter issues, try `chrome://flags/#enable-unsafe-webgpu` flag or try a browser with official WebGPU support.
 
@@ -28,7 +30,9 @@ Inference session run in the worker by default unless ```wnx.cfg.wasmGpuRunOnWor
 There is also webgl runtime but acts unexpected (dims/tensor layout always rejected wether using NCHW or NHWC as input).
 
 ## Using the Bundle
+
 #### Basic inference
+
 ```javascript
 // Model instance and required infos.
 const myModel = new wnx.Model('https://cdn-domain.com/path/to/ImageUpscaling-2x.onnx');
@@ -36,25 +40,26 @@ myModel.dataType: 'float32';
 myModel.layout: 'NCHW';
 myModel.channel: 3;
 
-// If the model is tile based (like Real-ESRGAN-General), assigning tileSize is required.
+// If the model input is tile based or passing the options freeDimensionOverrides, assigning tileSize is required.
 myModel.tileSize = 128;
 
 // OutputData instance.
-const output = new wnx.OutputData({preserveAlpha: true});
+const myOutput = new wnx.OutputData({preserveAlpha: true});
 
 // Start inference with an image file from input.
-await wnx.inferenceRun(myModel, fileInput.files[0], output);
+await wnx.inferenceRun(myModel, fileInput.files[0], myOutput);
 
-// Get result.
-output.imageData; // contain pixel buffer (Uint8array) and output dimensions
-output.tensor;   // raw tensor (TypedArray)
+// Results.
+myOutput.imageData; // contain pixel buffer (Uint8array) and output dimensions
+myOutput.tensor;   // raw tensor (TypedArray)
 ```
 
 #### The 'env' Flags and Session Options
-Described [here](https://onnxruntime.ai/docs/tutorials/web/env-flags-and-session-options.html#the-env-flags-and-session-options). Replace 'ort' with 'wnx', since module only loaded when running inference by default. Example: 
+
+Described [here](https://onnxruntime.ai/docs/tutorials/web/env-flags-and-session-options.html#the-env-flags-and-session-options). Replace 'ort' with 'wnx', since module only loaded when running inference by default. Assigned options will be passed on ort's session.
 ```javascript 
 wnx.env.wasm.proxy = true;
-wmx.env.logLevel = "verbose";
+wnx.env.logLevel = "verbose";
 
 // To set session options
 wnx.InferenceOpt = {
@@ -62,9 +67,24 @@ wnx.InferenceOpt = {
 }
 ```
 
-#### Configs
+If the option [freeDimensionOverrides](https://onnxruntime.ai/docs/tutorials/web/env-flags-and-session-options.html#freedimensionoverrides) is assigned to inferenceOpt, tileSize value also must be assigned accordingly or there will be mismatch dims error during session.run(). Note that it's currently supports square shaped dimension.
 ```javascript
-// Force inference on worker if env.wasm.proxy is not available from CORS issue
+wnx.inferenceOpt = {
+     freeDimensionOverrides: {
+        batch: 1,
+        height: 224,
+        width: 224
+  }
+}
+
+myModel.tileSize = 224;
+```
+
+#### Configs
+
+Bundles related config.
+```javascript
+// Force inference on worker, like if env.wasm.proxy is not available from CORS issue
 wnx.cfg.wasmGpuRunOnWorker = true;
 
 // Chunk level 1 - 4, lower mean less image data sliced each partial inference on an image
@@ -101,7 +121,7 @@ const imageData16 = await wnx.Image.tensorToRGB16_NCHW(output.tensor)
 ## Additional Informations
 
 
-### Additional Models and Runtime Informations
+### Getting Models and Runtime Informations
 - More information about usage of onnxruntime-web (https://onnxruntime.ai/docs/tutorials/web/).
 - Building your own onnx runtime for web (https://onnxruntime.ai/docs/build/web.html).
 - ONNX javascript API reference (https://onnxruntime.ai/docs/api/js/index.html).

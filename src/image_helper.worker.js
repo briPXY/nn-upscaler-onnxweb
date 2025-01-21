@@ -3,7 +3,7 @@ class ChunkData {
 		this.data = data;
 		this.w = w;
 		this.h = h;
-		makeDims(model.layout.toUpperCase(), w, h, model.channel);
+		this.makeDims(model.layout.toUpperCase(), w, h, model.channel);
 	}
 
 	data;
@@ -12,106 +12,13 @@ class ChunkData {
 	dims;
 
 	makeDims(layout, W, H, C) {
-		layout = layout.toUpperCase();
 		this.dims = [0, 0, 0, 0];
-		dims[layout.indexOf("N")] = 1;
-		dims[layout.indexOf("C")] = C;
-		dims[layout.indexOf("H")] = H;
-		dims[layout.indexOf("W")] = W;
+		this.dims[layout.indexOf("N")] = 1;
+		this.dims[layout.indexOf("C")] = C;
+		this.dims[layout.indexOf("H")] = H;
+		this.dims[layout.indexOf("W")] = W;
 	}
 }
-
-//#region data conversion
-
-/* Leverage ort Tensor constructor
-// Make pixel array into tensor layout, output is still in 8bit. Channels is input channel (not model).
-function transposeToTensor(data, channels = 3, model) {
-	const modelAllowAlpha = model.channel == 4;
-
-	if (mode.layout == 'NHWC') {
-		if (channels == 4 && !modelAllowAlpha) { // Input 4 channels, model require 3.
-			const rgb = [];
-			for (let i = 0; i < data.length; i += channels) {
-				rgb[i] = data[i];
-				rgb[i + 1] = data[i + 1];
-				rgb[i + 2] = data[i + 2];
-			}
-			return rgb;
-		}
-		if (channels == 3 && modelAllowAlpha) {
-			return addAlphaToRGB(data); // Input 3 channels, model require 4.
-		}
-		else {
-			return data;
-		}
-	}
-	else { // for NCHW
-		const [R, G, B, A] = [[], [], [], []];
-		const addAlpha = modelAllowAlpha && channels == 3;
-		const includeAlpha = modelAllowAlpha && channels == 4;
-
-		for (let i = 0; i < data.length; i += channels) {
-			R.push(data[i]);
-			G.push(data[i + 1]);
-			B.push(data[i + 2]);
-			addAlpha ? A.push(255) : null;
-			includeAlpha ? A.push(data[i + 3]) : null;
-			// Alpha skipped if model is 3 and input is 4 channels.
-		}
-
-		// 1b. concatenate RGB ~= transpose [224, 224, 3] -> [3, 224, 224] 
-		const nchwData = modelAllowAlpha ? R.concat(G).concat(B).concat(A) : R.concat(G).concat(B);
-		return nchwData;
-	}
-}
-
-function makeInputTensor(pixels, imgChannels, width, height, model) {
-	const tensorArray8bit = transposeToTensor(pixels, imgChannels, model.channel);
-	const tensorArrayFloat = createFloatArray(width, height, model);
-	convertToFloat(tensorArray8bit, tensorArrayFloat);
-	return tensorArrayFloat;
-} 
-
-
-function tensorToRGB(tensorData, width, height, channels) { // For NCHW tensor output layout
-	const data = new Uint8Array(width * height * channels);
-	const numPixels = width * height;
-
-	// Each channel's data is stored sequentially in transposedData
-	const R = tensorData.slice(0, numPixels);
-	const G = tensorData.slice(numPixels, numPixels * 2);
-	const B = tensorData.slice(numPixels * 2, numPixels * 3);
-
-	if (channels == 3) {
-		for (let i = 0; i < numPixels; i++) {
-			data[i * 4] = R[i];        // Red
-			data[i * 4 + 1] = G[i];    // Green
-			data[i * 4 + 2] = B[i];    // Blue 
-		}
-	}
-	else {
-		for (let i = 0; i < numPixels; i++) {
-			data[i * 4] = R[i];        // Red
-			data[i * 4 + 1] = G[i];    // Green
-			data[i * 4 + 2] = B[i];    // Blue 
-			data[i * 4 + 3] = 255;
-		}
-	}
-
-	return data;
-}
-
-
-function convertToFloat(transposed, transposed32) { // All types of floats
-	let i, l = transposed.length;
-	for (i = 0; i < l; i++) {
-		transposed32[i] = transposed[i] / 255.0;
-	}
-}
-
-*/
-
-
 
 function convertTo8Bit(transposed32, tensorArray8bit) {
 	let i, l = transposed32.length; // length of the input float array
@@ -383,21 +290,23 @@ function pixelsSlicerVertical(pixels, chunkSize, width, height, model) {
 	const channels = pixels.length / (width * height);
 
 	if (width * height <= chunkSize) {
-		return [new ChunkData({ data: pixels, h: height, w: width })];
+		pixelChunks.push(new ChunkData({ data: pixels, h: height, w: width, model: model }));
 	}
 
-	const chunkHeight = Math.round(chunkSize / width);
-	const sliceSize = width * chunkHeight * channels;
+	else { 
+		const chunkHeight = Math.round(chunkSize / width);
+		const sliceSize = width * chunkHeight * channels;
 
-	for (let i = 0; i < pixels.length;) {
-		if (i + sliceSize >= pixels.length) {
-			pixelChunks.push(new ChunkData({ data: pixels.slice(i), h: height, w: width, model: model }));
-			break;
+		for (let i = 0; i < pixels.length;) {
+			if (i + sliceSize >= pixels.length) {
+				pixelChunks.push(new ChunkData({ data: pixels.slice(i), h: height, w: width, model: model }));
+				break;
+			}
+
+			pixelChunks.push(new ChunkData({ data: pixels.slice(i, i + sliceSize), h: chunkHeight, w: width, model: model }));
+			height -= chunkHeight;
+			i += sliceSize;
 		}
-
-		pixelChunks.push(new ChunkData({ data: pixels.slice(i, i + sliceSize), h: chunkHeight, w: width, model: model }));
-		height -= chunkHeight;
-		i += sliceSize;
 	}
 
 	self.postMessage({
@@ -407,6 +316,7 @@ function pixelsSlicerVertical(pixels, chunkSize, width, height, model) {
 		prePadding: { w: width, h: originalHeight, data: null },
 		tileDim: null,
 	});
+
 	pixelChunks = null;
 	return;
 }
