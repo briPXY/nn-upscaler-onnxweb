@@ -1,7 +1,6 @@
-# Web Neural Inference for Image Processing Models (ONNX)
+# Bundle for inference with ONNX Web Runtime (Image Processing Models)
 
-Easy interface for running onnx models inference on the web browser, for image processing models. Using ONNX web runtime API.
-Features: Inference on each sliced images for AI models which input tensor's dimension is free or non-determined, to prevent page crash from large input/model (browser's memory limit policy).
+Even with the most compact models, page often crashed from large input due limited memory, especially tensor with free dimension. This javascript bundle slices an image and run inference on each chunk. Build on top of [onnxruntime-web](https://www.npmjs.com/package/onnxruntime-web). Included a web app for demo with image upscaling models.
 
 ## Usage
 
@@ -14,7 +13,7 @@ npm install
 # build bundle.min.js (production mode) and copy the backends from node_module
 npx webpack
 
-# run the fastify server for demo at http://127.0.0.1 (use mainstream browsers for webgpu support)
+# run the web demo at http://127.0.0.1 (use mainstream browsers for webgpu support)
 npm start
 ``` 
 _Select an image -> select models / runtime -> upscale_
@@ -24,24 +23,21 @@ Bundle and it's backends will generated in /dist/. Bundle.min.js is lightweight 
 ## Runtime Backends
 
 - Web Assembly: Multi-threading/SIMD is supported by onnx runtime.
-- WebGPU: Enabled on Chrome on most devices. Mostly faster than wasm. If you encounter issues, try `chrome://flags/#enable-unsafe-webgpu` flag or try a browser with official WebGPU support.
+- WebGPU: Enabled on Chrome on most devices. Mostly faster than wasm especially for dedeicated GPU. If you encounter issues, try `chrome://flags/#enable-unsafe-webgpu` flag or try a browser with official WebGPU support.
 
 Inference session run in the worker by default unless ```wnx.cfg.wasmGpuRunOnWorker = false ```.
 There is also webgl runtime but acts unexpected (dims/tensor layout always rejected wether using NCHW or NHWC as input).
 
 ## Using the Bundle
 
-#### Basic inference
+### Basic inference
 
 ```javascript
 // Model instance and required infos.
 const myModel = new wnx.Model('https://cdn-domain.com/path/to/ImageUpscaling-2x.onnx');
 myModel.dataType: 'float32';
 myModel.layout: 'NCHW';
-myModel.channel: 3;
-
-// If the model input is tile based or passing the options freeDimensionOverrides, assigning tileSize is required.
-myModel.tileSize = 128;
+myModel.channel: 3; 
 
 // OutputData instance.
 const myOutput = new wnx.OutputData({preserveAlpha: true});
@@ -54,9 +50,9 @@ myOutput.imageData; // contain pixel buffer (Uint8array) and output dimensions
 myOutput.tensor;   // raw tensor (TypedArray)
 ```
 
-#### The 'env' Flags and Session Options
+### The 'env' Flags and Session Options
 
-Described [here](https://onnxruntime.ai/docs/tutorials/web/env-flags-and-session-options.html#the-env-flags-and-session-options). Replace 'ort' with 'wnx', since module only loaded when running inference by default. Assigned options will be passed on ort's session.
+Described [here](https://onnxruntime.ai/docs/tutorials/web/env-flags-and-session-options.html#the-env-flags-and-session-options) simply replace 'ort' with 'wnx', since by default the ort module only loaded when running inference. Assigned options will be passed on ort's session.
 ```javascript 
 wnx.env.wasm.proxy = true;
 wnx.env.logLevel = "verbose";
@@ -67,20 +63,14 @@ wnx.InferenceOpt = {
 }
 ```
 
-If the option [freeDimensionOverrides](https://onnxruntime.ai/docs/tutorials/web/env-flags-and-session-options.html#freedimensionoverrides) is assigned to inferenceOpt, tileSize value also must be assigned accordingly or there will be mismatch dims error during session.run(). Note that it's currently supports square shaped dimension.
+In ort module there is option [freeDimensionOverrides](https://onnxruntime.ai/docs/tutorials/web/env-flags-and-session-options.html#freedimensionoverrides) for model with free dimension, this can be set simply with pass dimenstion value to tileSize. This will override default slicing (horizontal). If model required specific dimension then assigning the value is a must.
 ```javascript
-wnx.inferenceOpt = {
-     freeDimensionOverrides: {
-        batch: 1,
-        height: 224,
-        width: 224
-  }
-}
-
+// If freeDimensionOverrides options passed on session option or wnx.InferenceOpt
+// Or if model input require specific dimension like [1,3,224,224]
 myModel.tileSize = 224;
 ```
 
-#### Configs
+### Configs
 
 Bundles related config.
 ```javascript
@@ -91,19 +81,6 @@ wnx.cfg.wasmGpuRunOnWorker = true;
 wnx.cfg.avgChunkSize = 2;
 ```
 
-#### Post-inference Utility
-Encodes image data from output, return a blob, example
-```javascript
-const pixels = output.imageData.data;
-const width = output.imageData.width;
-// etc
-const blob = await wnx.Image.encodeRGBA(pixels, width, height, 90, 'webp')
-```
-Convert output tensor (nchw) to image data (rgb), return an Uint16Array.
-```javascript
-const imageData16 = await wnx.Image.tensorToRGB16_NCHW(output.tensor)
-```
-
 ## Known Issues and Limitations 
 - No merged tensor output yet for models with tile based tensors.
 - Unmanaged page's memory usage (likely heaps from onnx-runtime) after an inference, equal as youtube page but expected to be more lightweight.
@@ -111,15 +88,13 @@ const imageData16 = await wnx.Image.tensorToRGB16_NCHW(output.tensor)
 
 ## Included Models
 
-| Architecture| Model| Scale | Tensor   | Layout  | Original Format |
+| Architecture| Model| Scale | Tensor | Original Format |
 | ----------- | ---------------------- | ----- | -------- | ------- | --------------- |
-| SPAN        | [ClearRealityV1](https://openmodeldb.info/models/4x-ClearRealityV1)| 4     | float32  | NCHW    | .onnx  |
-| Real-ESRGAN | [NomosUni-otf-medium](https://openmodeldb.info/models/2x-NomosUni-compact-otf-medium)    | 2     | float32  | NCHW    | .pth   |
-| SPAN        | [NomosUni-multijpg-ldl](https://openmodeldb.info/models/2x-NomosUni-span-multijpg-ldl)  | 2     | float32  | NCHW    | .pth   |
-
+| SPAN        | [ClearRealityV1](https://openmodeldb.info/models/4x-ClearRealityV1)| 4 | float32 | .onnx  |
+| Real-ESRGAN | [NomosUni-otf-medium](https://openmodeldb.info/models/2x-NomosUni-compact-otf-medium) | 2 | float32 | .pth |
+| SPAN        | [NomosUni-multijpg-ldl](https://openmodeldb.info/models/2x-NomosUni-span-multijpg-ldl) | 2 | float32 | .pth |
 
 ## Additional Informations
-
 
 ### Getting Models and Runtime Informations
 - More information about usage of onnxruntime-web (https://onnxruntime.ai/docs/tutorials/web/).

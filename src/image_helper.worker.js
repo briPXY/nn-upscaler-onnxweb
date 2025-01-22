@@ -27,16 +27,13 @@ function convertTo8Bit(transposed32, tensorArray8bit) {
 	}
 }
 
-function addAlphaToRGB(rgbArray, alphaValue = 255) {
-	if (rgbArray.length % 3 !== 0) {
-		throw new Error("Invalid RGB array length");
-	}
-	const numPixels = rgbArray.length / 3;
+function addAlphaToRGB(pixels, alphaValue = 255) {
+	const numPixels = pixels.length / 3;
 	const rgbaArray = new Uint8Array(numPixels * 4);
-	for (let i = 0, j = 0; i < rgbArray.length; i += 3, j += 4) {
-		rgbaArray[j] = rgbArray[i];       // Red
-		rgbaArray[j + 1] = rgbArray[i + 1]; // Green
-		rgbaArray[j + 2] = rgbArray[i + 2]; // Blue
+	for (let i = 0, j = 0; i < pixels.length; i += 3, j += 4) {
+		rgbaArray[j] = pixels[i];       // Red
+		rgbaArray[j + 1] = pixels[i + 1]; // Green
+		rgbaArray[j + 2] = pixels[i + 2]; // Blue
 		rgbaArray[j + 3] = alphaValue;     // Alpha
 	}
 	return rgbaArray;
@@ -237,6 +234,10 @@ function paddedImageData(originalData, originalWidth, originalHeight, newWidth, 
 
 // Tile based slicer, from top
 function pixelSlicerSquare(pixels, width, height, model) {
+	if (pixels.length == width * height * 3) {
+		pixels = addAlphaToRGB(pixels);
+	}
+
 	const tileSize = model.tileSize;
 	const channels = pixels.length / (width * height);
 
@@ -283,17 +284,21 @@ function pixelSlicerSquare(pixels, width, height, model) {
 
 }
 
-function pixelsSlicerVertical(pixels, chunkSize, width, height, model) {
+function pixelsSlicerHorizontal(pixels, chunkSize, width, height, model) {
 	let pixelChunks = [];
 	const originalHeight = height;
 
+	if (pixels.length == width * height * 3) {
+		pixels = addAlphaToRGB(pixels);
+	}
+	
 	const channels = pixels.length / (width * height);
 
 	if (width * height <= chunkSize) {
 		pixelChunks.push(new ChunkData({ data: pixels, h: height, w: width, model: model }));
 	}
 
-	else { 
+	else {
 		const chunkHeight = Math.round(chunkSize / width);
 		const sliceSize = width * chunkHeight * channels;
 
@@ -330,14 +335,14 @@ self.onmessage = async function (event) {
 
 	// Create sliced image from typed array.
 	if (event.data.context == 'transpose-pixels') { // Input is rgb/a pixels (uint8). 
-		data.model.tileSize ? pixelSlicerSquare(input, data.w, data.h, data.model) : pixelsSlicerVertical(input, data.chunkSize, data.w, data.h, data.model);
+		data.model.tileSize ? pixelSlicerSquare(input, data.w, data.h, data.model) : pixelsSlicerHorizontal(input, data.chunkSize, data.w, data.h, data.model);
 	}
 
 	// Create sliced image from image File.
 	if (event.data.context == "decode-transpose") { // Input is native image File object.
 		loadImage(input, data.w, data.h)
 			.then((pixels) => {
-				data.model.tileSize ? pixelSlicerSquare(pixels, data.w, data.h, data.model) : pixelsSlicerVertical(pixels, data.chunkSize, data.w, data.h, data.model);
+				data.model.tileSize ? pixelSlicerSquare(pixels, data.w, data.h, data.model) : pixelsSlicerHorizontal(pixels, data.chunkSize, data.w, data.h, data.model);
 			})
 			.catch((error) => {
 				console.error(error);

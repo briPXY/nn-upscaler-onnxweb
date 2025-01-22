@@ -45,7 +45,7 @@ async function setModelList() {
         opt.value = name;
         optionSelect[0].appendChild(opt);
     }
-    if (Models['Real-ESRGAN-General-x4v3']){
+    if (Models['Real-ESRGAN-General-x4v3']) {
         Models['Real-ESRGAN-General-x4v3'].tileSize = 128;
     }
 }
@@ -170,6 +170,28 @@ pv.compContainer.addEventListener('touchend', () => {
 //#endregion
 //#region image pre + processing  
 
+const rgba = { buffer: null, w: 0, h: 0 };
+
+function getPixelData(file) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = function () {
+            rgba.w = img.width;
+            rgba.h = img.height;
+
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height; 
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0); 
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height); 
+            rgba.buffer = new Uint8Array(imageData.data);
+            resolve(true);
+        };
+        img.src = file;
+    });
+}
+ 
 document.querySelector('.close-button').addEventListener('click', (e) => {
     sectionStates({ dropZone: 'flex', compPanel: 'none', upscale: 'flex', convert: 'none', loading: 'none' });
     pv.startBtn.style.display = 'none';
@@ -202,13 +224,14 @@ fInput.addEventListener('change', async (e) => {
     try {
         const file = e.target.files[0]; // Get the selected file
         const reader = new FileReader();
-        reader.onload = function (event) {
+        reader.onload = async function (event) {
             const blob = new Blob([reader.result], { type: file.type });
             const objectURL = URL.createObjectURL(blob);
             pv.beforeImg.src = objectURL;
             pv.startBtn.style.display = 'block';
-            sectionStates({ dropZone: 'none', compPanel: 'flex' });
             pv.afterImg.src = '';
+            // await getPixelData(objectURL); // typed array input test
+            sectionStates({ dropZone: 'none', compPanel: 'flex' });
         }
         reader.readAsArrayBuffer(file);
     }
@@ -222,7 +245,7 @@ pv.startBtn.addEventListener('click', async function () {
         pv.startBtn.style.display = "none";
         sectionStates({ upscale: 'none', loading: 'flex' });
 
-        wnx.env.logLevel = "verbose";
+        wnx.env.logLevel = "error";
         wnx.cfg.wasmGpuRunOnWorker = optionSelect[3].value == "true";
         wnx.cfg.avgChunkSize = Number(optionSelect[4].value);
         wnx.setWasmFlags({ proxy: false, numThreads: 8 });
@@ -230,9 +253,13 @@ pv.startBtn.addEventListener('click', async function () {
         inferenceOptions.executionProviders = provider;
         wnx.setInferenceOption(inferenceOptions);
 
+        // rgba.buffer = rgba.buffer.filter((_, index) => (index + 1) % 4 !== 0); // 3 channel test.
+
         const onnxModel = new wnx.Model(Models[optionSelect[0].value]);
+        // onnxModel.tileSize = 200;
         Output = new wnx.OutputData({ includeTensor: false, dumpOriginalImageData: true });
-        await wnx.inferenceRun(onnxModel, fInput.files[0], Output);
+        // await wnx.inferenceRun(onnxModel, rgba.buffer, Output, rgba.w, rgba.h);
+        await wnx.inferenceRun(onnxModel, fInput.files[0], Output, rgba.w, rgba.h);
 
         console.log('Inference finished', Output.imageData.data.length, '- Time to finish:', Output.time);
 

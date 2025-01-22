@@ -158,7 +158,7 @@ export class Model {
     channel;
     dataType;
     layout;
-    tileSize = null;
+    tileSize;
 
     validate() {
         const emptyprop = [];
@@ -169,6 +169,11 @@ export class Model {
         }
         if (emptyprop.length > 0) {
             throw `Model instance is missing information: ${emptyprop}`;
+        }
+
+        if (this.tileSize < 50) {
+            this.tileSize = undefined;
+            console.warn("tileSize value is too low, set to undefined")
         }
     }
 }

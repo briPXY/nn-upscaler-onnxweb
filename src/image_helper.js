@@ -138,7 +138,6 @@ export const mergeTensorsVertical = {
  */
 export async function createImageBitmapFromRGB(width, height, rgbData) {
 	const noAlpha = rgbData.length == width * height * 3;
-	const channels = noAlpha + 3;
 	const canvas = document.createElement('canvas');
 	canvas.width = width;
 	canvas.height = height;
@@ -146,8 +145,8 @@ export async function createImageBitmapFromRGB(width, height, rgbData) {
 
 	const imageData = ctx.createImageData(width, height);
 
-	if (channels == 3) {
-		for (let i = 0; i < rgbData.length; i += channels) {
+	if (noAlpha) {
+		for (let i = 0; i < rgbData.length; i += 3) {
 			imageData.data[i] = rgbData[i];       // Red
 			imageData.data[i + 1] = rgbData[i + 1]; // Green
 			imageData.data[i + 2] = rgbData[i + 2]; // Blue
